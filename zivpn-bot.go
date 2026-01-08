@@ -237,6 +237,15 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 			return
 		}
 		tempUserData[userID]["protocols"] = strings.Join(protocols, ",")
+		userStates[userID] = "create_ip_limit"
+		sendMessage(bot, chatID, "📌 Masukkan Limit IP (1-2):")
+
+	case "create_ip_limit":
+		_, ok := validateNumber(bot, chatID, text, 1, 2, "Limit IP")
+		if !ok {
+			return
+		}
+		tempUserData[userID]["ip_limit"] = text
 		userStates[userID] = "create_days"
 		sendMessage(bot, chatID, "⏳ Masukkan Durasi (hari):")
 
@@ -248,7 +257,8 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 		tempUserData[userID]["days"] = text
 
 		days, _ := strconv.Atoi(text)
-		createUser(bot, chatID, tempUserData[userID]["username"], days, tempUserData[userID]["protocols"], config)
+		ipLimit, _ := strconv.Atoi(tempUserData[userID]["ip_limit"])
+		createUser(bot, chatID, tempUserData[userID]["username"], days, tempUserData[userID]["protocols"], ipLimit, config)
 		resetState(userID)
 
 	case "renew_protocols":
@@ -330,10 +340,11 @@ func toggleMode(bot *tgbotapi.BotAPI, chatID int64, userID int64, config *BotCon
 	showMainMenu(bot, chatID, config)
 }
 
-func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int, protocols string, config *BotConfig) {
+func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int, protocols string, ipLimit int, config *BotConfig) {
 	payload := map[string]interface{}{
 		"password": username,
 		"days":     days,
+		"ip_limit": ipLimit,
 	}
 	if protocols != "" {
 		payload["protocols"] = strings.Split(protocols, ",")
@@ -713,13 +724,18 @@ func sendAccountInfo(bot *tgbotapi.BotAPI, chatID int64, data map[string]interfa
 	}
 
 	protocolInfo := formatProtocols(data)
-	msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n  ACCOUNT ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nPassword   : %s\nCITY       : %s\nISP        : %s\nIP ISP     : %s\nDomain     : %s\nProtocols  : %s\nExpired On : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
+	ipLimit := "-"
+	if value, ok := data["ip_limit"]; ok && value != nil {
+		ipLimit = fmt.Sprintf("%v", value)
+	}
+	msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n  ACCOUNT ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nPassword   : %s\nCITY       : %s\nISP        : %s\nIP ISP     : %s\nDomain     : %s\nProtocols  : %s\nIP Limit   : %s\nExpired On : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
 		data["password"],
 		ipInfo.City,
 		ipInfo.Isp,
 		ipInfo.Query,
 		domain,
 		protocolInfo,
+		ipLimit,
 		data["expired"],
 	)
 
