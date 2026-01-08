@@ -203,9 +203,15 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(w, http.StatusBadRequest, false, err.Error(), nil)
 			return
 		}
-		req.Days = pkg.Days
-		req.Protocols = pkg.Protocols
-		req.IpLimit = pkg.IpLimit
+		if req.Days <= 0 {
+			req.Days = pkg.Days
+		}
+		if len(req.Protocols) == 0 {
+			req.Protocols = pkg.Protocols
+		}
+		if req.IpLimit <= 0 {
+			req.IpLimit = pkg.IpLimit
+		}
 	}
 
 	if password == "" || req.Days <= 0 {
