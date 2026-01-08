@@ -52,6 +52,7 @@ type UserRequest struct {
 	Days            int                          `json:"days"`
 	Protocols       []string                     `json:"protocols"`
 	ProtocolOptions map[string]map[string]string `json:"protocol_options"`
+	IpLimit         int                          `json:"ip_limit"`
 }
 
 type UserStore struct {
@@ -61,6 +62,7 @@ type UserStore struct {
 	Status          string                       `json:"status"`
 	Protocols       []string                     `json:"protocols"`
 	ProtocolOptions map[string]map[string]string `json:"protocol_options,omitempty"`
+	IpLimit         int                          `json:"ip_limit"`
 }
 
 type Response struct {
@@ -137,6 +139,10 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, http.StatusBadRequest, false, "Password dan days harus valid", nil)
 		return
 	}
+	if err := validateIpLimit(req.IpLimit); err != nil {
+		jsonResponse(w, http.StatusBadRequest, false, err.Error(), nil)
+		return
+	}
 
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -185,6 +191,7 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 		Status:          "active",
 		Protocols:       protocols,
 		ProtocolOptions: req.ProtocolOptions,
+		IpLimit:         req.IpLimit,
 	}
 	users = append(users, newUser)
 
@@ -214,6 +221,7 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 		"expired":   expDate,
 		"domain":    domain,
 		"protocols": protocols,
+		"ip_limit":  req.IpLimit,
 	})
 }
 
@@ -335,10 +343,18 @@ func renewUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.IpLimit != 0 {
+		if err := validateIpLimit(req.IpLimit); err != nil {
+			jsonResponse(w, http.StatusBadRequest, false, err.Error(), nil)
+			return
+		}
+	}
+
 	found := false
 	newUsers := []UserStore{}
 	var newExpDate string
 	var updatedProtocols []string
+	var updatedIpLimit int
 
 	for _, u := range users {
 		normalized := normalizeStoredUser(u)
@@ -371,8 +387,12 @@ func renewUser(w http.ResponseWriter, r *http.Request) {
 			if req.ProtocolOptions != nil {
 				normalized.ProtocolOptions = req.ProtocolOptions
 			}
+			if req.IpLimit != 0 {
+				normalized.IpLimit = req.IpLimit
+			}
 
 			updatedProtocols = normalized.Protocols
+			updatedIpLimit = normalized.IpLimit
 			newUsers = append(newUsers, normalized)
 		} else {
 			newUsers = append(newUsers, normalizeStoredUser(u))
@@ -430,6 +450,7 @@ func renewUser(w http.ResponseWriter, r *http.Request) {
 		"password":  password,
 		"expired":   newExpDate,
 		"protocols": updatedProtocols,
+		"ip_limit":  updatedIpLimit,
 	})
 }
 
@@ -451,6 +472,7 @@ func listUsers(w http.ResponseWriter, r *http.Request) {
 		Expired   string   `json:"expired"`
 		Status    string   `json:"status"`
 		Protocols []string `json:"protocols"`
+		IpLimit   int      `json:"ip_limit"`
 	}
 
 	userList := []UserInfo{}
@@ -471,6 +493,7 @@ func listUsers(w http.ResponseWriter, r *http.Request) {
 			Expired:   normalized.Expired,
 			Status:    status,
 			Protocols: normalized.Protocols,
+			IpLimit:   normalized.IpLimit,
 		})
 	}
 
@@ -702,6 +725,9 @@ func normalizeStoredUser(user UserStore) UserStore {
 	} else {
 		user.Protocols = normalizeProtocols(user.Protocols)
 	}
+	if user.IpLimit == 0 {
+		user.IpLimit = 1
+	}
 	return user
 }
 
@@ -756,6 +782,7 @@ func syncProtocolConfigs(users []UserStore) error {
 		Password string            `json:"password"`
 		Expired  string            `json:"expired"`
 		Status   string            `json:"status"`
+		IpLimit  int               `json:"ip_limit"`
 		Options  map[string]string `json:"options,omitempty"`
 	}
 
@@ -785,6 +812,7 @@ func syncProtocolConfigs(users []UserStore) error {
 				Password: normalized.Password,
 				Expired:  normalized.Expired,
 				Status:   normalized.Status,
+				IpLimit:  normalized.IpLimit,
 				Options:  options,
 			})
 		}
@@ -849,4 +877,11 @@ func saveUsers(users []UserStore) error {
 func restartService() error {
 	cmd := exec.Command("systemctl", "restart", "zivpn.service")
 	return cmd.Run()
+}
+
+func validateIpLimit(limit int) error {
+	if limit < 1 || limit > 2 {
+		return fmt.Errorf("IP limit harus antara 1-2")
+	}
+	return nil
 }

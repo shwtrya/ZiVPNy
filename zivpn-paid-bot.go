@@ -58,6 +58,7 @@ type UserData struct {
 	Expired   string   `json:"expired"`
 	Status    string   `json:"status"`
 	Protocols []string `json:"protocols"`
+	IpLimit   int      `json:"ip_limit"`
 }
 
 // ==========================================
@@ -198,6 +199,17 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 		mutex.Lock()
 		tempUserData[userID]["protocols"] = strings.Join(protocols, ",")
 		mutex.Unlock()
+		userStates[userID] = "create_ip_limit"
+		sendMessage(bot, chatID, "📌 Masukkan Limit IP (1-2):")
+
+	case "create_ip_limit":
+		_, ok := validateNumber(bot, chatID, text, 1, 2, "Limit IP")
+		if !ok {
+			return
+		}
+		mutex.Lock()
+		tempUserData[userID]["ip_limit"] = text
+		mutex.Unlock()
 		userStates[userID] = "create_days"
 		sendMessage(bot, chatID, fmt.Sprintf("⏳ Masukkan Durasi (hari)\nHarga: Rp %d / hari:", config.DailyPrice))
 
@@ -253,8 +265,8 @@ func processPayment(bot *tgbotapi.BotAPI, chatID int64, userID int64, days int, 
 	// Generate QR Image URL
 	qrUrl := fmt.Sprintf("https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=%s", payment.PaymentNumber)
 
-	msgText := fmt.Sprintf("💳 **Tagihan Pembayaran**\n\nPassword: `%s`\nDurasi: %d Hari\nTotal: Rp %d\n\nSilakan scan QRIS di atas untuk membayar.\nSistem akan otomatis mengecek pembayaran setiap menit.\nExpired: %s",
-		tempUserData[userID]["password"], days, price, payment.ExpiredAt)
+	msgText := fmt.Sprintf("💳 **Tagihan Pembayaran**\n\nPassword: `%s`\nDurasi: %d Hari\nLimit IP: %s\nTotal: Rp %d\n\nSilakan scan QRIS di atas untuk membayar.\nSistem akan otomatis mengecek pembayaran setiap menit.\nExpired: %s",
+		tempUserData[userID]["password"], days, tempUserData[userID]["ip_limit"], price, payment.ExpiredAt)
 
 	photo := tgbotapi.NewPhoto(chatID, tgbotapi.FileURL(qrUrl))
 	photo.Caption = msgText
@@ -292,7 +304,8 @@ func startPaymentChecker(bot *tgbotapi.BotAPI, config *BotConfig) {
 					password := data["password"]
 					days, _ := strconv.Atoi(data["days"])
 
-					createUser(bot, chatID, password, days, data["protocols"], config)
+					ipLimit, _ := strconv.Atoi(data["ip_limit"])
+					createUser(bot, chatID, password, days, data["protocols"], ipLimit, config)
 					delete(tempUserData, userID)
 					delete(userStates, userID)
 				} else if err != nil {
@@ -304,10 +317,11 @@ func startPaymentChecker(bot *tgbotapi.BotAPI, config *BotConfig) {
 	}
 }
 
-func createUser(bot *tgbotapi.BotAPI, chatID int64, password string, days int, protocols string, config *BotConfig) {
+func createUser(bot *tgbotapi.BotAPI, chatID int64, password string, days int, protocols string, ipLimit int, config *BotConfig) {
 	payload := map[string]interface{}{
 		"password": password,
 		"days":     days,
+		"ip_limit": ipLimit,
 	}
 	if protocols != "" {
 		payload["protocols"] = strings.Split(protocols, ",")
@@ -432,8 +446,12 @@ func sendAccountInfo(bot *tgbotapi.BotAPI, chatID int64, data map[string]interfa
 	}
 
 	protocolInfo := formatProtocols(data)
-	msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n  PREMIUM ACCOUNT\n━━━━━━━━━━━━━━━━━━━━━\nPassword   : %s\nCITY       : %s\nISP        : %s\nDomain     : %s\nProtocols  : %s\nExpired On : %s\n━━━━━━━━━━━━━━━━━━━━━\n```\nTerima kasih telah berlangganan!",
-		data["password"], ipInfo.City, ipInfo.Isp, domain, protocolInfo, data["expired"],
+	ipLimit := "-"
+	if value, ok := data["ip_limit"]; ok && value != nil {
+		ipLimit = fmt.Sprintf("%v", value)
+	}
+	msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n  PREMIUM ACCOUNT\n━━━━━━━━━━━━━━━━━━━━━\nPassword   : %s\nCITY       : %s\nISP        : %s\nDomain     : %s\nProtocols  : %s\nIP Limit   : %s\nExpired On : %s\n━━━━━━━━━━━━━━━━━━━━━\n```\nTerima kasih telah berlangganan!",
+		data["password"], ipInfo.City, ipInfo.Isp, domain, protocolInfo, ipLimit, data["expired"],
 	)
 
 	reply := tgbotapi.NewMessage(chatID, msg)
