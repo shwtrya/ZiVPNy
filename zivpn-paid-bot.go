@@ -218,8 +218,6 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 		if isAdmin(config, userID) {
 			startRestore(bot, chatID, userID)
 		}
-	case strings.HasPrefix(query.Data, "select_package:"):
-		selectPackageForCreate(bot, chatID, userID, query.Data)
 	}
 
 	bot.Request(tgbotapi.NewCallback(query.ID, callbackText))
@@ -231,9 +229,15 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 	chatID := msg.Chat.ID
 
 	switch state {
-	case "create_package":
-		sendMessage(bot, chatID, "📦 Silakan pilih paket dari daftar di atas.")
-		return
+	case "create_username":
+		if !validateUsername(bot, chatID, text) {
+			return
+		}
+		mutex.Lock()
+		tempUserData[userID]["username"] = text
+		mutex.Unlock()
+		userStates[userID] = "create_password"
+		sendMessage(bot, chatID, "🔐 Masukkan password untuk akun:")
 	case "create_days":
 		days, err := strconv.Atoi(text)
 		if err != nil || days <= 0 {
@@ -258,14 +262,24 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 		mutex.Lock()
 		tempUserData[userID]["ip_limit"] = strconv.Itoa(ipLimit)
 		mutex.Unlock()
-		userStates[userID] = "create_password"
-		sendMessage(bot, chatID, fmt.Sprintf("👤 Masukkan Password untuk paket %s:", tempUserData[userID]["package_name"]))
+		userStates[userID] = "create_protocols"
+		sendMessage(bot, chatID, "🧩 Masukkan protokol (contoh: udp, ssh, ws) atau `all`:")
 	case "create_password":
 		if !validatePassword(bot, chatID, text) {
 			return
 		}
 		mutex.Lock()
 		tempUserData[userID]["password"] = text
+		mutex.Unlock()
+		userStates[userID] = "create_days"
+		sendMessage(bot, chatID, "⏳ Masukkan durasi (hari):")
+	case "create_protocols":
+		protocols, ok := parseProtocolsInput(bot, chatID, text)
+		if !ok {
+			return
+		}
+		mutex.Lock()
+		tempUserData[userID]["protocols"] = strings.Join(protocols, ",")
 		mutex.Unlock()
 		days, err := strconv.Atoi(tempUserData[userID]["days"])
 		if err != nil || days <= 0 {
@@ -326,54 +340,8 @@ func startCreateUser(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
 	tempUserData[userID] = make(map[string]string)
 	tempUserData[userID]["chat_id"] = strconv.FormatInt(chatID, 10)
 	mutex.Unlock()
-	userStates[userID] = "create_package"
-	showPackageMenu(bot, chatID, userID)
-}
-
-func showPackageMenu(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
-	packages, err := loadPackages()
-	if err != nil {
-		replyError(bot, chatID, "Gagal membaca paket: "+err.Error())
-		return
-	}
-	if len(packages) == 0 {
-		replyError(bot, chatID, "Paket belum tersedia. Hubungi admin.")
-		return
-	}
-
-	lines := []string{"📦 *PILIH PAKET*"}
-	var rows [][]tgbotapi.InlineKeyboardButton
-	for _, pkg := range packages {
-		protocols := strings.Join(pkg.Protocols, ", ")
-		lines = append(lines, fmt.Sprintf("• *%s* (`%s`) — %d hari, IP %d, %s", pkg.Name, pkg.ID, pkg.Days, pkg.IpLimit, protocols))
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("%s (%d hari)", pkg.Name, pkg.Days), "select_package:"+pkg.ID),
-		))
-	}
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("❌ Batal", "cancel"),
-	))
-
-	msg := tgbotapi.NewMessage(chatID, strings.Join(lines, "\n"))
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
-	sendAndTrack(bot, msg)
-}
-
-func selectPackageForCreate(bot *tgbotapi.BotAPI, chatID int64, userID int64, data string) {
-	packageID := strings.TrimPrefix(data, "select_package:")
-	pkg, err := findPackageByID(packageID)
-	if err != nil {
-		replyError(bot, chatID, err.Error())
-		return
-	}
-	mutex.Lock()
-	tempUserData[userID]["package_id"] = pkg.ID
-	tempUserData[userID]["package_name"] = pkg.Name
-	tempUserData[userID]["protocols"] = strings.Join(pkg.Protocols, ",")
-	mutex.Unlock()
-	userStates[userID] = "create_days"
-	sendMessage(bot, chatID, fmt.Sprintf("⏳ Masukkan durasi (hari) untuk paket %s:", pkg.Name))
+	userStates[userID] = "create_username"
+	sendMessage(bot, chatID, "👤 Masukkan username untuk akun:")
 }
 
 func processPayment(bot *tgbotapi.BotAPI, chatID int64, userID int64, days int, ipLimit int, config *BotConfig) {
@@ -405,8 +373,8 @@ func processPayment(bot *tgbotapi.BotAPI, chatID int64, userID int64, days int, 
 	// Generate QR Image URL
 	qrUrl := fmt.Sprintf("https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=%s", payment.PaymentNumber)
 
-	msgText := fmt.Sprintf("💳 **TAGIHAN PEMBAYARAN**\n\n🧾 **Ringkasan**\n• Paket            : %s\n• Password         : `%s`\n• Durasi           : %d Hari\n• Limit IP         : %d\n• Biaya IP tambahan: Rp %d\n• Total            : Rp %d\n\n⏱️ **Batas Waktu**\n• Expired : %s\n\n📌 Silakan scan QRIS di atas untuk membayar.\n🔄 Sistem akan mengecek pembayaran otomatis setiap menit.",
-		tempUserData[userID]["package_name"], tempUserData[userID]["password"], days, ipLimit, extraIP*2000, price, payment.ExpiredAt)
+	msgText := fmt.Sprintf("💳 **TAGIHAN PEMBAYARAN**\n\n🧾 **Ringkasan**\n• Username         : `%s`\n• Password         : `%s`\n• Durasi           : %d Hari\n• Limit IP         : %d\n• Biaya IP tambahan: Rp %d\n• Total            : Rp %d\n\n⏱️ **Batas Waktu**\n• Expired : %s\n\n📌 Silakan scan QRIS di atas untuk membayar.\n🔄 Sistem akan mengecek pembayaran otomatis setiap menit.",
+		tempUserData[userID]["username"], tempUserData[userID]["password"], days, ipLimit, extraIP*2000, price, payment.ExpiredAt)
 
 	photo := tgbotapi.NewPhoto(chatID, tgbotapi.FileURL(qrUrl))
 	photo.Caption = msgText
@@ -441,6 +409,7 @@ func startPaymentChecker(bot *tgbotapi.BotAPI, config *BotConfig) {
 				status, err := checkPakasirStatus(config, orderID, price)
 				if err == nil && (status == "completed" || status == "success") {
 					// Payment Success
+					username := data["username"]
 					password := data["password"]
 					days, err := strconv.Atoi(data["days"])
 					if err != nil || days <= 0 {
@@ -457,7 +426,7 @@ func startPaymentChecker(bot *tgbotapi.BotAPI, config *BotConfig) {
 						continue
 					}
 					protocols := parseProtocolsCSV(data["protocols"])
-					createUser(bot, chatID, password, days, ipLimit, protocols, config)
+					createUser(bot, chatID, username, password, days, ipLimit, protocols, config)
 					delete(tempUserData, userID)
 					delete(userStates, userID)
 				} else if err != nil {
@@ -469,8 +438,9 @@ func startPaymentChecker(bot *tgbotapi.BotAPI, config *BotConfig) {
 	}
 }
 
-func createUser(bot *tgbotapi.BotAPI, chatID int64, password string, days int, ipLimit int, protocols []string, config *BotConfig) {
+func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, password string, days int, ipLimit int, protocols []string, config *BotConfig) {
 	payload := map[string]interface{}{
+		"username":  username,
 		"password":  password,
 		"days":      days,
 		"ip_limit":  ipLimit,
@@ -701,6 +671,18 @@ func validatePassword(bot *tgbotapi.BotAPI, chatID int64, text string) bool {
 	}
 	if !regexp.MustCompile(`^[a-zA-Z0-9_-]+$`).MatchString(text) {
 		sendMessage(bot, chatID, "❌ Password hanya boleh huruf, angka, - dan _. Coba lagi:")
+		return false
+	}
+	return true
+}
+
+func validateUsername(bot *tgbotapi.BotAPI, chatID int64, text string) bool {
+	if len(text) < 3 || len(text) > 20 {
+		sendMessage(bot, chatID, "❌ Username harus 3-20 karakter. Coba lagi:")
+		return false
+	}
+	if !regexp.MustCompile(`^[a-zA-Z0-9_-]+$`).MatchString(text) {
+		sendMessage(bot, chatID, "❌ Username hanya boleh huruf, angka, - dan _. Coba lagi:")
 		return false
 	}
 	return true
