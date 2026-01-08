@@ -15,8 +15,21 @@
     *   **Auto-Revoke**: User expired otomatis disconnect setiap jam 00:00 WIB (via Cron).
     *   **Clean Deletion**: Hapus user bersih total dari config dan database.
     *   **Bot Notification**: Admin menerima notifikasi saat expire check/cleanup sukses.
+*   **IP Limit & Monitoring Online**: Batasi koneksi per akun dan lihat akun aktif beserta IP/last_seen.
 *   **Dynamic Security**: API Key dan sertifikat SSL digenerate otomatis.
+*   **Fail2ban Protection**: Proteksi brute-force untuk SSH dan ZiVPN UDP.
+*   **Multi-Admin Bot**: Dukungan beberapa admin dengan role (`owner`/`admin`/`superadmin`).
+*   **Template Paket Akun**: Paket siap pakai dengan limit IP/protocol.
 *   **High Performance**: Core UDP ZiVPN yang dioptimalkan.
+
+---
+
+## 🧭 Changelog/Update Plan (v1.1–v1.4)
+
+*   **v1.1** — **IP Limit & Template Paket**: Dukungan limit IP per akun serta paket akun berbasis template (`packages.json`).
+*   **v1.2** — **Fail2ban**: Proteksi otomatis untuk SSH dan ZiVPN UDP.
+*   **v1.3** — **Notifikasi & Multi-Admin**: Notifikasi bot saat cron sukses dan dukungan multi-admin dengan role.
+*   **v1.4** — **Monitoring Online**: Endpoint monitoring akun aktif (IP & last_seen).
 
 ---
 
@@ -51,6 +64,11 @@ Saat script berjalan, Anda akan diminta memasukkan:
 4.  **Torrent Blocker** (Opsional):
     *   Aktifkan untuk memblokir trafik torrent pada port umum dan string BitTorrent (iptables/ufw).
     *   Rule dapat diubah di `/etc/zivpn/torrent-block.rules`.
+
+### Konfigurasi Tambahan Setelah Instalasi
+*   **Torrent Blocker**: Enable/disable sesuai kebutuhan (lihat bagian di bawah) dan sesuaikan rule di `/etc/zivpn/torrent-block.rules`.
+*   **Backup Full**: Jalankan menu **Backup** dari bot (Free/Paid) untuk mendapatkan ZIP backup penuh. Simpan file ZIP sebagai cadangan restore.
+*   **Cron Cleanup**: Pastikan cron berjalan (jadwal default di bawah) dan cek log di `/var/log/zivpn-cron.log`. Untuk uji manual, gunakan endpoint `/api/cron/cleanup`.
 
 ### Enable/Disable Torrent Blocker
 *   **Enable**: Jalankan `/etc/zivpn/torrent-block-apply.sh`
