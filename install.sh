@@ -359,7 +359,7 @@ EOF
 
 mkdir -p /etc/zivpn/api
 run_silent "Setting up API" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/zivpn-api.go -O /etc/zivpn/api/zivpn-api.go"
-api_go_version=$(go env GOVERSION 2>/dev/null | sed 's/^go//' | cut -d. -f1,2)
+api_go_version=$(go env GOVERSION 2>/dev/null | sed -E 's/^go([0-9]+\.[0-9]+).*/\1/')
 if [[ -z "$api_go_version" ]]; then
   api_go_version="1.18"
 fi
@@ -370,11 +370,7 @@ go ${api_go_version}
 EOF
 
 cd /etc/zivpn/api
-if go build -o zivpn-api zivpn-api.go &>/dev/null; then
-  print_done "Compiling API"
-else
-  print_fail "Compiling API"
-fi
+run_silent "Compiling API" "go build -o zivpn-api zivpn-api.go"
 
 cat <<EOF > /etc/systemd/system/zivpn-api.service
 [Unit]
