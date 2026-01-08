@@ -50,7 +50,7 @@ Jika Anda ingin menggunakan **Paid Bot**, Anda wajib memiliki akun Pakasir.
 Jalankan perintah berikut di terminal VPS Anda (sebagai root):
 
 ```bash
-wget -q https://raw.githubusercontent.com/AutoFTbot/ZiVPN/main/install.sh && chmod +x install.sh && ./install.sh
+wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/install.sh && chmod +x install.sh && ./install.sh
 ```
 
 ### Konfigurasi Saat Instalasi
@@ -180,15 +180,15 @@ Log cron tersimpan di `/var/log/zivpn-cron.log`.
 
 Kelola server dan user Anda dengan mudah menggunakan aplikasi Android resmi **ZiVPN Manager**.
 
-[**Download ZiVPN Manager (APK)**](https://github.com/AutoFTbot/ZiVPN/raw/main/App/app-release.apk)
+[**Download ZiVPN Manager (APK)**](https://github.com/shwtrya/ZiVPNy/raw/main/App/app-release.apk)
 
 ### Screenshots
 <p float="left">
-  <img src="https://github.com/AutoFTbot/ZiVPN/raw/main/App/photo_2025-12-18_20-25-53.jpg" width="200" />
-  <img src="https://github.com/AutoFTbot/ZiVPN/raw/main/App/photo_2025-12-18_20-26-05.jpg" width="200" />
-  <img src="https://github.com/AutoFTbot/ZiVPN/raw/main/App/photo_2025-12-18_20-26-11.jpg" width="200" />
-  <img src="https://github.com/AutoFTbot/ZiVPN/raw/main/App/photo_2025-12-18_20-26-15.jpg" width="200" />
-  <img src="https://github.com/AutoFTbot/ZiVPN/raw/main/App/photo_2025-12-18_20-26-21.jpg" width="200" />
+  <img src="https://github.com/shwtrya/ZiVPNy/raw/main/App/photo_2025-12-18_20-25-53.jpg" width="200" />
+  <img src="https://github.com/shwtrya/ZiVPNy/raw/main/App/photo_2025-12-18_20-26-05.jpg" width="200" />
+  <img src="https://github.com/shwtrya/ZiVPNy/raw/main/App/photo_2025-12-18_20-26-11.jpg" width="200" />
+  <img src="https://github.com/shwtrya/ZiVPNy/raw/main/App/photo_2025-12-18_20-26-15.jpg" width="200" />
+  <img src="https://github.com/shwtrya/ZiVPNy/raw/main/App/photo_2025-12-18_20-26-21.jpg" width="200" />
 </p>
 
 ---
@@ -281,5 +281,5 @@ Jika Anda melihat log seperti:
 Untuk menghapus ZiVPN, API, Bot, dan semua konfigurasi:
 
 ```bash
-wget -q https://raw.githubusercontent.com/AutoFTbot/ZiVPN/main/uninstall.sh && chmod +x uninstall.sh && ./uninstall.sh
+wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/uninstall.sh && chmod +x uninstall.sh && ./uninstall.sh
 ```
