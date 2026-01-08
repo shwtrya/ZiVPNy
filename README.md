@@ -87,7 +87,15 @@ Jika format log ZiVPN berbeda, edit `failregex` di filter `zivpn.conf` lalu rest
 *   **Admin**: Memiliki menu rahasia **🛠️ Admin Panel** yang berisi fitur manajemen dan **Backup & Restore**.
 
 ### Fitur Backup & Restore
-*   **Backup**: Bot mengirim file ZIP berisi semua data server (`config.json`, `users.json`, dll).
+*   **Backup**: Bot mengirim file ZIP berisi semua data server (backup full).
+    *   [ ] `/etc/zivpn/config.json`
+    *   [ ] `/etc/zivpn/users.json`
+    *   [ ] `/etc/zivpn/domain`
+    *   [ ] `/etc/zivpn/apikey`
+    *   [ ] `/etc/zivpn/api_port`
+    *   [ ] `/etc/zivpn/zivpn.crt`
+    *   [ ] `/etc/zivpn/zivpn.key`
+    *   [ ] `/etc/zivpn/bot-config.json`
 *   **Restore**: Kirim file ZIP backup ke bot untuk restore data dan restart server otomatis.
 
 ---

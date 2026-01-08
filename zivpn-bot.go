@@ -609,6 +609,11 @@ func performBackup(bot *tgbotapi.BotAPI, chatID int64) {
 		"/etc/zivpn/config.json",
 		"/etc/zivpn/users.json",
 		"/etc/zivpn/domain",
+		"/etc/zivpn/apikey",
+		"/etc/zivpn/api_port",
+		"/etc/zivpn/zivpn.crt",
+		"/etc/zivpn/zivpn.key",
+		"/etc/zivpn/bot-config.json",
 	}
 
 	buf := new(bytes.Buffer)
@@ -648,7 +653,7 @@ func performBackup(bot *tgbotapi.BotAPI, chatID int64) {
 	defer os.Remove(tmpFile)
 
 	doc := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(tmpFile))
-	doc.Caption = "✅ Backup Data ZiVPN"
+	doc.Caption = "✅ Backup Full Data ZiVPN"
 
 	deleteLastMessage(bot, chatID)
 	bot.Send(doc)
@@ -703,6 +708,9 @@ func processRestoreFile(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *Bot
 			"bot-config.json": true,
 			"domain":          true,
 			"apikey":          true,
+			"api_port":        true,
+			"zivpn.crt":       true,
+			"zivpn.key":       true,
 		}
 
 		if !validFiles[f.Name] {
