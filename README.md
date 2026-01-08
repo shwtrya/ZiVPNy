@@ -57,6 +57,23 @@ Saat script berjalan, Anda akan diminta memasukkan:
 *   **Disable**: Jalankan `/etc/zivpn/torrent-block-remove.sh`
 *   **Custom rule**: Edit `/etc/zivpn/torrent-block.rules`, lalu jalankan ulang apply script.
 
+### Fail2ban (SSH + ZiVPN UDP)
+Installer akan memasang **fail2ban** dan membuat jail default untuk:
+*   **SSH (sshd)** dengan backend systemd.
+*   **ZiVPN UDP** (port `5667/udp`) memakai filter custom `zivpn` yang membaca `/var/log/zivpn.log` dan journal `zivpn.service`.
+
+**File konfigurasi:**
+*   Jail: `/etc/fail2ban/jail.d/zivpn.local`
+*   Filter: `/etc/fail2ban/filter.d/zivpn.conf`
+
+**Perintah umum:**
+*   **Enable jail ZiVPN**: `fail2ban-client start zivpn-udp`
+*   **Disable jail ZiVPN**: `fail2ban-client stop zivpn-udp`
+*   **Cek status**: `fail2ban-client status zivpn-udp`
+
+Jika format log ZiVPN berbeda, edit `failregex` di filter `zivpn.conf` lalu restart fail2ban:
+`systemctl restart fail2ban`.
+
 ---
 
 ## 🤖 Telegram Bot Usage

@@ -61,6 +61,40 @@ else
   print_done "Dependencies ready"
 fi
 
+run_silent "Installing Fail2ban" "sudo apt-get install -y fail2ban"
+
+cat <<'EOF' > /etc/fail2ban/filter.d/zivpn.conf
+[Definition]
+failregex = ^.*(?:auth|authentication)\s*(?:failed|failure|invalid|error).*?(?:from|ip|addr|remote)\s*[:=]?\s*<HOST>.*$
+            ^.*(?:bad|invalid)\s*(?:password|credentials).*?(?:from|ip|addr|remote)\s*[:=]?\s*<HOST>.*$
+            ^.*(?:login|account)\s*(?:failed|invalid).*?(?:from|ip|addr|remote)\s*[:=]?\s*<HOST>.*$
+ignoreregex =
+EOF
+
+cat <<'EOF' > /etc/fail2ban/jail.d/zivpn.local
+[sshd]
+enabled = true
+backend = systemd
+maxretry = 5
+findtime = 10m
+bantime = 1h
+
+[zivpn-udp]
+enabled = true
+filter = zivpn
+backend = auto
+journalmatch = _SYSTEMD_UNIT=zivpn.service
+logpath = /var/log/zivpn.log
+port = 5667
+protocol = udp
+maxretry = 5
+findtime = 10m
+bantime = 1h
+EOF
+
+run_silent "Enabling Fail2ban" "sudo systemctl enable --now fail2ban"
+run_silent "Restarting Fail2ban" "sudo systemctl restart fail2ban"
+
 echo ""
 echo -ne "${BOLD}Domain Configuration${RESET}\n"
 while true; do
