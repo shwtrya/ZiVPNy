@@ -248,9 +248,6 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 		startRenewUser(bot, chatID, userID, query.Data)
 	case strings.HasPrefix(query.Data, "select_delete:"):
 		confirmDeleteUser(bot, chatID, query.Data)
-	case strings.HasPrefix(query.Data, "select_package:"):
-		selectPackageForCreate(bot, chatID, userID, query.Data)
-
 	// --- Action Confirmation ---
 	case strings.HasPrefix(query.Data, "confirm_delete:"):
 		username := strings.TrimPrefix(query.Data, "confirm_delete:")
@@ -271,14 +268,51 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 
 	switch state {
 	case "create_package":
-		sendMessage(bot, chatID, "📦 Silakan pilih paket dari daftar di atas.")
+		sendMessage(bot, chatID, "👤 Masukkan Username:")
 		return
 	case "create_username":
 		if !validateUsername(bot, chatID, text) {
 			return
 		}
 		tempUserData[userID]["username"] = text
-		createUser(bot, chatID, tempUserData[userID]["username"], tempUserData[userID]["package_id"], config)
+		userStates[userID] = "create_password"
+		sendMessage(bot, chatID, "🔑 Masukkan Password:")
+
+	case "create_password":
+		if !validateUsername(bot, chatID, text) {
+			return
+		}
+		tempUserData[userID]["password"] = text
+		userStates[userID] = "create_days"
+		sendMessage(bot, chatID, "⏳ Masukkan Durasi (hari):")
+
+	case "create_days":
+		days, ok := validateNumber(bot, chatID, text, 1, 9999, "Durasi")
+		if !ok {
+			return
+		}
+		tempUserData[userID]["days"] = strconv.Itoa(days)
+		userStates[userID] = "create_ip_limit"
+		sendMessage(bot, chatID, "📌 Masukkan Batas IP (ip_limit):")
+
+	case "create_ip_limit":
+		ipLimit, ok := validateNumber(bot, chatID, text, 1, 9999, "IP Limit")
+		if !ok {
+			return
+		}
+		tempUserData[userID]["ip_limit"] = strconv.Itoa(ipLimit)
+		userStates[userID] = "create_protocols"
+		sendMessage(bot, chatID, "🧩 Masukkan Protokol (pisahkan koma). Contoh: udp, ssh, ws atau ketik all:")
+
+	case "create_protocols":
+		protocols, ok := parseProtocolsInput(bot, chatID, text, true)
+		if !ok {
+			return
+		}
+		tempUserData[userID]["protocols"] = strings.Join(protocols, ",")
+		days, _ := strconv.Atoi(tempUserData[userID]["days"])
+		ipLimit, _ := strconv.Atoi(tempUserData[userID]["ip_limit"])
+		createUser(bot, chatID, tempUserData[userID]["username"], tempUserData[userID]["password"], days, ipLimit, protocols, config)
 		resetState(userID)
 
 	case "renew_protocols":
@@ -345,51 +379,8 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 
 func startCreateUser(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
 	tempUserData[userID] = make(map[string]string)
-	userStates[userID] = "create_package"
-	showPackageMenu(bot, chatID, userID)
-}
-
-func showPackageMenu(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
-	packages, err := loadPackages()
-	if err != nil {
-		replyError(bot, chatID, "Gagal membaca paket: "+err.Error())
-		return
-	}
-	if len(packages) == 0 {
-		replyError(bot, chatID, "Paket belum tersedia. Hubungi admin.")
-		return
-	}
-
-	lines := []string{"📦 *PILIH PAKET*"}
-	var rows [][]tgbotapi.InlineKeyboardButton
-	for _, pkg := range packages {
-		protocols := strings.Join(pkg.Protocols, ", ")
-		lines = append(lines, fmt.Sprintf("• *%s* (`%s`) — %d hari, IP %d, %s", pkg.Name, pkg.ID, pkg.Days, pkg.IpLimit, protocols))
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("%s (%d hari)", pkg.Name, pkg.Days), "select_package:"+pkg.ID),
-		))
-	}
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("❌ Batal", "cancel"),
-	))
-
-	msg := tgbotapi.NewMessage(chatID, strings.Join(lines, "\n"))
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
-	sendAndTrack(bot, msg)
-}
-
-func selectPackageForCreate(bot *tgbotapi.BotAPI, chatID int64, userID int64, data string) {
-	packageID := strings.TrimPrefix(data, "select_package:")
-	pkg, err := findPackageByID(packageID)
-	if err != nil {
-		replyError(bot, chatID, err.Error())
-		return
-	}
-	tempUserData[userID]["package_id"] = pkg.ID
-	tempUserData[userID]["package_name"] = pkg.Name
 	userStates[userID] = "create_username"
-	sendMessage(bot, chatID, fmt.Sprintf("👤 Masukkan Password untuk paket %s:", pkg.Name))
+	sendMessage(bot, chatID, "👤 Masukkan Username:")
 }
 
 func startRenewUser(bot *tgbotapi.BotAPI, chatID int64, userID int64, data string) {
@@ -437,10 +428,13 @@ func toggleMode(bot *tgbotapi.BotAPI, chatID int64, userID int64, config *BotCon
 	showMainMenu(bot, chatID, config)
 }
 
-func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, packageID string, config *BotConfig) {
+func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, password string, days int, ipLimit int, protocols []string, config *BotConfig) {
 	payload := map[string]interface{}{
-		"password":   username,
-		"package_id": packageID,
+		"username":  username,
+		"password":  password,
+		"days":      days,
+		"ip_limit":  ipLimit,
+		"protocols": protocols,
 	}
 
 	res, err := apiCall("POST", "/user/create", payload)
@@ -1128,11 +1122,11 @@ func findPackageByID(packageID string) (Package, error) {
 
 func validateUsername(bot *tgbotapi.BotAPI, chatID int64, text string) bool {
 	if len(text) < 3 || len(text) > 20 {
-		sendMessage(bot, chatID, "❌ Password harus 3-20 karakter. Coba lagi:")
+		sendMessage(bot, chatID, "❌ Input harus 3-20 karakter. Coba lagi:")
 		return false
 	}
 	if !regexp.MustCompile(`^[a-zA-Z0-9_-]+$`).MatchString(text) {
-		sendMessage(bot, chatID, "❌ Password hanya boleh huruf, angka, - dan _. Coba lagi:")
+		sendMessage(bot, chatID, "❌ Input hanya boleh huruf, angka, - dan _. Coba lagi:")
 		return false
 	}
 	return true
