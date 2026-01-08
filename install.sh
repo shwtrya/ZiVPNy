@@ -174,13 +174,13 @@ add_string_rules() {
   done
 }
 
-if [ "${#PORTS_TCP[@]:-0}" -gt 0 ]; then
+if [ "${#PORTS_TCP[@]}" -gt 0 ]; then
   tcp_ports="$(join_by "${PORTS_TCP[@]}")"
   add_rule INPUT -p tcp -m multiport --dports "$tcp_ports" -j DROP
   add_rule FORWARD -p tcp -m multiport --dports "$tcp_ports" -j DROP
 fi
 
-if [ "${#PORTS_UDP[@]:-0}" -gt 0 ]; then
+if [ "${#PORTS_UDP[@]}" -gt 0 ]; then
   udp_ports="$(join_by "${PORTS_UDP[@]}")"
   add_rule INPUT -p udp -m multiport --dports "$udp_ports" -j DROP
   add_rule FORWARD -p udp -m multiport --dports "$udp_ports" -j DROP
@@ -197,10 +197,10 @@ if iptables -m layer7 -h &>/dev/null; then
 fi
 
 if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
-  for port in "${PORTS_TCP[@]:-}"; do
+  for port in "${PORTS_TCP[@]}"; do
     ufw deny "$port"/tcp &>/dev/null || true
   done
-  for port in "${PORTS_UDP[@]:-}"; do
+  for port in "${PORTS_UDP[@]}"; do
     ufw deny "$port"/udp &>/dev/null || true
   done
 fi
@@ -236,13 +236,13 @@ delete_string_rules() {
   done
 }
 
-if [ "${#PORTS_TCP[@]:-0}" -gt 0 ]; then
+if [ "${#PORTS_TCP[@]}" -gt 0 ]; then
   tcp_ports="$(join_by "${PORTS_TCP[@]}")"
   delete_rule INPUT -p tcp -m multiport --dports "$tcp_ports" -j DROP
   delete_rule FORWARD -p tcp -m multiport --dports "$tcp_ports" -j DROP
 fi
 
-if [ "${#PORTS_UDP[@]:-0}" -gt 0 ]; then
+if [ "${#PORTS_UDP[@]}" -gt 0 ]; then
   udp_ports="$(join_by "${PORTS_UDP[@]}")"
   delete_rule INPUT -p udp -m multiport --dports "$udp_ports" -j DROP
   delete_rule FORWARD -p udp -m multiport --dports "$udp_ports" -j DROP
@@ -259,10 +259,10 @@ if iptables -m layer7 -h &>/dev/null; then
 fi
 
 if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
-  for port in "${PORTS_TCP[@]:-}"; do
+  for port in "${PORTS_TCP[@]}"; do
     ufw delete deny "$port"/tcp &>/dev/null || true
   done
-  for port in "${PORTS_UDP[@]:-}"; do
+  for port in "${PORTS_UDP[@]}"; do
     ufw delete deny "$port"/udp &>/dev/null || true
   done
 fi
