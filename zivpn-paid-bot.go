@@ -179,7 +179,11 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 
 	switch {
 	case query.Data == "menu_create":
-		startCreateUser(bot, chatID, userID)
+		startCreateUser(bot, chatID, userID, false)
+	case query.Data == "menu_create_admin":
+		if isAdmin(config, userID) {
+			startCreateUser(bot, chatID, userID, true)
+		}
 	case query.Data == "menu_info":
 		systemInfo(bot, chatID, config)
 	case query.Data == "menu_admins":
@@ -294,6 +298,13 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 			resetState(userID)
 			return
 		}
+		_, skipPayment := tempUserData[userID]["skip_payment"]
+		if skipPayment || isAdmin(config, userID) {
+			createUser(bot, chatID, tempUserData[userID]["username"], tempUserData[userID]["password"], days, ipLimit, protocols, config)
+			delete(tempUserData, userID)
+			delete(userStates, userID)
+			return
+		}
 		processPayment(bot, chatID, userID, days, ipLimit, config)
 
 	case "admin_add":
@@ -336,10 +347,13 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 // Feature Implementation
 // ==========================================
 
-func startCreateUser(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
+func startCreateUser(bot *tgbotapi.BotAPI, chatID int64, userID int64, skipPayment bool) {
 	mutex.Lock()
 	tempUserData[userID] = make(map[string]string)
 	tempUserData[userID]["chat_id"] = strconv.FormatInt(chatID, 10)
+	if skipPayment {
+		tempUserData[userID]["skip_payment"] = "true"
+	}
 	mutex.Unlock()
 	userStates[userID] = "create_username"
 	sendMessage(bot, chatID, "👤 Masukkan username untuk akun:")
@@ -562,6 +576,9 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 	if isAdmin(config, chatID) {
 		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🖥️ SISTEM", "section_sistem"),
+		))
+		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("👑 Admin Create Akun", "menu_create_admin"),
 		))
 		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📊 System Info", "menu_info"),
