@@ -610,7 +610,7 @@ func resetState(userID int64) {
 }
 
 func loadPackages() ([]Package, error) {
-	data, err := os.ReadFile(PackagesFile)
+	data, err := ioutil.ReadFile(PackagesFile)
 	if err != nil {
 		return nil, err
 	}
