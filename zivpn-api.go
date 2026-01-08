@@ -219,6 +219,9 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, http.StatusBadRequest, false, "Password dan days harus valid", nil)
 		return
 	}
+	if req.IpLimit == 0 {
+		req.IpLimit = 1
+	}
 	if err := validateIpLimit(req.IpLimit); err != nil {
 		jsonResponse(w, http.StatusBadRequest, false, err.Error(), nil)
 		return

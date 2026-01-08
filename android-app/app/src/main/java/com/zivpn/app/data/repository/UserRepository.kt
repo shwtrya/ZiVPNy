@@ -22,10 +22,25 @@ class UserRepository @Inject constructor() {
         }
     }
 
-    suspend fun createUser(server: Server, password: String, days: Int): Result<User> {
+    suspend fun createUser(
+        server: Server,
+        username: String,
+        password: String,
+        days: Int,
+        ipLimit: Int,
+        protocols: List<String>
+    ): Result<User> {
         return try {
             val api = ApiClient.getApi(server)
-            val response = api.createUser(UserRequest(password, days))
+            val response = api.createUser(
+                UserRequest(
+                    username = username,
+                    password = password,
+                    days = days,
+                    ipLimit = ipLimit,
+                    protocols = protocols
+                )
+            )
             if (response.isSuccessful && response.body()?.success == true) {
                 Result.success(response.body()!!.data!!)
             } else {
@@ -39,7 +54,7 @@ class UserRepository @Inject constructor() {
     suspend fun deleteUser(server: Server, password: String): Result<Unit> {
         return try {
             val api = ApiClient.getApi(server)
-            val response = api.deleteUser(UserRequest(password))
+            val response = api.deleteUser(UserRequest(password = password))
             if (response.isSuccessful && response.body()?.success == true) {
                 Result.success(Unit)
             } else {
@@ -50,10 +65,25 @@ class UserRepository @Inject constructor() {
         }
     }
 
-    suspend fun renewUser(server: Server, password: String, days: Int): Result<User> {
+    suspend fun renewUser(
+        server: Server,
+        username: String,
+        password: String,
+        days: Int,
+        ipLimit: Int,
+        protocols: List<String>
+    ): Result<User> {
         return try {
             val api = ApiClient.getApi(server)
-            val response = api.renewUser(UserRequest(password, days))
+            val response = api.renewUser(
+                UserRequest(
+                    username = username,
+                    password = password,
+                    days = days,
+                    ipLimit = ipLimit,
+                    protocols = protocols
+                )
+            )
             if (response.isSuccessful && response.body()?.success == true) {
                 Result.success(response.body()!!.data!!)
             } else {

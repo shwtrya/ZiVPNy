@@ -7,9 +7,16 @@
     android:padding="16dp">
 
     <EditText
+        android:id="@+id/et_username"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Username" />
+
+    <EditText
         android:id="@+id/et_password"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
         android:hint="Password" />
 
     <EditText
@@ -20,5 +27,21 @@
         android:hint="Durasi (hari)"
         android:inputType="number"
         android:text="30" />
+
+    <EditText
+        android:id="@+id/et_ip_limit"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="IP Limit"
+        android:inputType="number"
+        android:text="1" />
+
+    <EditText
+        android:id="@+id/et_protocols"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="Protocols (contoh: udp,ssh,ws)" />
 
 </LinearLayout>
