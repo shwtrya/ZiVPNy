@@ -204,6 +204,8 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 		}
 	case query.Data == "cancel":
 		cancelOperation(bot, chatID, userID, config)
+	case strings.HasPrefix(query.Data, "section_"):
+		// Section headers are non-actionable.
 
 	// --- Pagination ---
 	case strings.HasPrefix(query.Data, "page_"):
@@ -439,7 +441,7 @@ func listUsers(bot *tgbotapi.BotAPI, chatID int64) {
 			return
 		}
 
-		msg := "📋 *List Passwords*\n"
+		msg := "📂 *DAFTAR AKUN*\n"
 		for _, u := range users {
 			user := u.(map[string]interface{})
 			status := "🟢"
@@ -473,7 +475,7 @@ func listOnlineUsers(bot *tgbotapi.BotAPI, chatID int64) {
 			return
 		}
 
-		msg := "📡 *Akun Online*\n"
+		msg := "📡 *AKUN ONLINE*\n"
 		for _, entry := range entries {
 			name := entry.Username
 			if name == "" {
@@ -506,7 +508,7 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 		ipInfo, _ := getIpInfo()
 		domain := getInfoValue(data, "domain", config.Domain)
 
-		msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n    INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nDomain         : %s\nIP Public      : %s\nIP Private     : %s\nPort           : %s\nService        : %s\nCPU            : %s\nRAM            : %s\nDisk           : %s\nUptime         : %s\nLoad Avg       : %s\nKernel         : %s\nZiVPN Version  : %s\nCITY           : %s\nISP            : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
+		msg := fmt.Sprintf("```\n🖥️ INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n🌐 JARINGAN\n• Domain    : %s\n• IP Public : %s\n• IP Private: %s\n• Port      : %s\n⚙️ SISTEM\n• Service   : %s\n• CPU       : %s\n• RAM       : %s\n• Disk      : %s\n• Uptime    : %s\n• Load Avg  : %s\n• Kernel    : %s\n• Version   : %s\n📍 LOKASI\n• City      : %s\n• ISP       : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
 			domain,
 			getInfoValue(data, "public_ip", "-"),
 			getInfoValue(data, "private_ip", "-"),
@@ -746,7 +748,12 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 		domain = "(Not Configured)"
 	}
 
-	msgText := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n    MENU ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n • Domain   : %s\n • City     : %s\n • ISP      : %s\n━━━━━━━━━━━━━━━━━━━━━\n```\n👇 Silakan pilih menu dibawah ini:", domain, ipInfo.City, ipInfo.Isp)
+	modeLabel := "Private"
+	if config.Mode == "public" {
+		modeLabel = "Public"
+	}
+
+	msgText := fmt.Sprintf("```\n✨ ZiVPN UDP Bot v1.0\n━━━━━━━━━━━━━━━━━━━━━\n📊 STATUS RINGKAS\n• Status : ✅ Aktif\n• Mode   : %s\n• Domain : %s\n• City   : %s\n• ISP    : %s\n━━━━━━━━━━━━━━━━━━━━━\n```\n👇 Silakan pilih menu di bawah ini:", modeLabel, domain, ipInfo.City, ipInfo.Isp)
 
 	msg := tgbotapi.NewMessage(chatID, msgText)
 	msg.ParseMode = "Markdown"
@@ -757,6 +764,9 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 func getMainMenuKeyboard(config *BotConfig, userID int64) tgbotapi.InlineKeyboardMarkup {
 	// Public Menu (Everyone)
 	rows := [][]tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📂 AKUN", "section_akun"),
+		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("👤 Create Password", "menu_create"),
 			tgbotapi.NewInlineKeyboardButtonData("🗑️ Delete Password", "menu_delete"),
@@ -776,8 +786,14 @@ func getMainMenuKeyboard(config *BotConfig, userID int64) tgbotapi.InlineKeyboar
 		rows[1] = append(rows[1], tgbotapi.NewInlineKeyboardButtonData("📋 List Passwords", "menu_list"))
 
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🖥️ SISTEM", "section_sistem"),
+		))
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📡 Akun Online", "menu_online"),
 			tgbotapi.NewInlineKeyboardButtonData("📊 System Info", "menu_info"),
+		))
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🛠️ ADMIN", "section_admin"),
 		))
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("💾 Backup & Restore", "menu_backup_restore"),
@@ -801,15 +817,15 @@ func sendAccountInfo(bot *tgbotapi.BotAPI, chatID int64, data map[string]interfa
 	if value, ok := data["ip_limit"]; ok && value != nil {
 		ipLimit = fmt.Sprintf("%v", value)
 	}
-	msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n  ACCOUNT ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nPassword   : %s\nCITY       : %s\nISP        : %s\nIP ISP     : %s\nDomain     : %s\nProtocols  : %s\nIP Limit   : %s\nExpired On : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
+	msg := fmt.Sprintf("```\n✅ AKUN ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n🔐 AKUN\n• Password : %s\n• Expired  : %s\n• IP Limit : %s\n🧩 PROTOKOL\n• Protocols: %s\n🌐 SERVER\n• Domain   : %s\n• City     : %s\n• ISP      : %s\n• IP ISP   : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
 		data["password"],
+		data["expired"],
+		ipLimit,
+		protocolInfo,
+		domain,
 		ipInfo.City,
 		ipInfo.Isp,
 		ipInfo.Query,
-		domain,
-		protocolInfo,
-		ipLimit,
-		data["expired"],
 	)
 
 	reply := tgbotapi.NewMessage(chatID, msg)

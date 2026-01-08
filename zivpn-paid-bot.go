@@ -164,6 +164,8 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 		systemInfo(bot, chatID, config)
 	case query.Data == "cancel":
 		cancelOperation(bot, chatID, userID, config)
+	case strings.HasPrefix(query.Data, "section_"):
+		// Section headers are non-actionable.
 
 	case query.Data == "menu_admin":
 		if userID == config.AdminID {
@@ -276,7 +278,7 @@ func processPayment(bot *tgbotapi.BotAPI, chatID int64, userID int64, days int, 
 	// Generate QR Image URL
 	qrUrl := fmt.Sprintf("https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=%s", payment.PaymentNumber)
 
-	msgText := fmt.Sprintf("💳 **Tagihan Pembayaran**\n\nPassword: `%s`\nDurasi: %d Hari\nLimit IP: %s\nTotal: Rp %d\n\nSilakan scan QRIS di atas untuk membayar.\nSistem akan otomatis mengecek pembayaran setiap menit.\nExpired: %s",
+	msgText := fmt.Sprintf("💳 **TAGIHAN PEMBAYARAN**\n\n🧾 **Ringkasan**\n• Password: `%s`\n• Durasi  : %d Hari\n• Limit IP: %s\n• Total   : Rp %d\n\n⏱️ **Batas Waktu**\n• Expired : %s\n\n📌 Silakan scan QRIS di atas untuk membayar.\n🔄 Sistem akan mengecek pembayaran otomatis setiap menit.",
 		tempUserData[userID]["password"], days, tempUserData[userID]["ip_limit"], price, payment.ExpiredAt)
 
 	photo := tgbotapi.NewPhoto(chatID, tgbotapi.FileURL(qrUrl))
@@ -424,12 +426,15 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 		domain = "(Not Configured)"
 	}
 
-	msgText := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n    STORE ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n • Domain   : %s\n • City     : %s\n • ISP      : %s\n • Harga    : Rp %d / Hari\n━━━━━━━━━━━━━━━━━━━━━\n```\n👇 Silakan pilih menu dibawah ini:", domain, ipInfo.City, ipInfo.Isp, config.DailyPrice)
+	msgText := fmt.Sprintf("```\n✨ ZiVPN UDP Store v1.0\n━━━━━━━━━━━━━━━━━━━━━\n📊 STATUS RINGKAS\n• Status : ✅ Aktif\n• Domain : %s\n• City   : %s\n• ISP    : %s\n• Harga  : Rp %d / Hari\n━━━━━━━━━━━━━━━━━━━━━\n```\n👇 Silakan pilih menu di bawah ini:", domain, ipInfo.City, ipInfo.Isp, config.DailyPrice)
 
 	msg := tgbotapi.NewMessage(chatID, msgText)
 	msg.ParseMode = "Markdown"
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📂 AKUN", "section_akun"),
+		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🛒 Beli Akun Premium", "menu_create"),
 		),
@@ -438,7 +443,13 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 	// Add Admin Panel for Admin
 	if chatID == config.AdminID {
 		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🖥️ SISTEM", "section_sistem"),
+		))
+		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📊 System Info", "menu_info"),
+		))
+		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🛠️ ADMIN", "section_admin"),
 		))
 		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🛠️ Admin Panel", "menu_admin"),
@@ -461,8 +472,8 @@ func sendAccountInfo(bot *tgbotapi.BotAPI, chatID int64, data map[string]interfa
 	if value, ok := data["ip_limit"]; ok && value != nil {
 		ipLimit = fmt.Sprintf("%v", value)
 	}
-	msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n  PREMIUM ACCOUNT\n━━━━━━━━━━━━━━━━━━━━━\nPassword   : %s\nCITY       : %s\nISP        : %s\nDomain     : %s\nProtocols  : %s\nIP Limit   : %s\nExpired On : %s\n━━━━━━━━━━━━━━━━━━━━━\n```\nTerima kasih telah berlangganan!",
-		data["password"], ipInfo.City, ipInfo.Isp, domain, protocolInfo, ipLimit, data["expired"],
+	msg := fmt.Sprintf("```\n✅ PREMIUM ACCOUNT\n━━━━━━━━━━━━━━━━━━━━━\n🔐 AKUN\n• Password : %s\n• Expired  : %s\n• IP Limit : %s\n🧩 PROTOKOL\n• Protocols: %s\n🌐 SERVER\n• Domain   : %s\n• City     : %s\n• ISP      : %s\n━━━━━━━━━━━━━━━━━━━━━\n```\nTerima kasih telah berlangganan!",
+		data["password"], data["expired"], ipLimit, protocolInfo, domain, ipInfo.City, ipInfo.Isp,
 	)
 
 	reply := tgbotapi.NewMessage(chatID, msg)
@@ -608,7 +619,7 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 		ipInfo, _ := getIpInfo()
 		domain := getInfoValue(data, "domain", config.Domain)
 
-		msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n    INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nDomain         : %s\nIP Public      : %s\nIP Private     : %s\nPort           : %s\nService        : %s\nCPU            : %s\nRAM            : %s\nDisk           : %s\nUptime         : %s\nLoad Avg       : %s\nKernel         : %s\nZiVPN Version  : %s\nCITY           : %s\nISP            : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
+		msg := fmt.Sprintf("```\n🖥️ INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n🌐 JARINGAN\n• Domain    : %s\n• IP Public : %s\n• IP Private: %s\n• Port      : %s\n⚙️ SISTEM\n• Service   : %s\n• CPU       : %s\n• RAM       : %s\n• Disk      : %s\n• Uptime    : %s\n• Load Avg  : %s\n• Kernel    : %s\n• Version   : %s\n📍 LOKASI\n• City      : %s\n• ISP       : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
 			domain,
 			getInfoValue(data, "public_ip", "-"),
 			getInfoValue(data, "private_ip", "-"),
@@ -660,7 +671,7 @@ func listOnlineUsers(bot *tgbotapi.BotAPI, chatID int64) {
 			return
 		}
 
-		msg := "📡 *Akun Online*\n"
+		msg := "📡 *AKUN ONLINE*\n"
 		for _, entry := range entries {
 			name := entry.Username
 			if name == "" {
