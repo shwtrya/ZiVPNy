@@ -83,6 +83,11 @@ fi
 echo -e "Using Key: ${GREEN}$api_key${RESET}"
 echo ""
 
+echo -ne "${BOLD}Torrent Blocker Configuration${RESET}\n"
+read -p "Enable torrent blocker (iptables/ufw) [y/N]: " enable_torrent_blocker
+enable_torrent_blocker=${enable_torrent_blocker:-N}
+echo ""
+
 systemctl stop zivpn.service &>/dev/null
 run_silent "Downloading Core" "wget -q https://github.com/zahidbd2/udp-zivpn/releases/download/udp-zivpn_1.4.9/udp-zivpn-linux-amd64 -O /usr/local/bin/zivpn && chmod +x /usr/local/bin/zivpn"
 
@@ -94,6 +99,141 @@ run_silent "Configuring" "wget -q https://raw.githubusercontent.com/AutoFTbot/Zi
 run_silent "Generating SSL" "openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 -subj '/C=ID/ST=Jawa Barat/L=Bandung/O=AutoFTbot/OU=IT Department/CN=$domain' -keyout /etc/zivpn/zivpn.key -out /etc/zivpn/zivpn.crt"
 
 mkdir -p /etc/zivpn/protocols
+cat <<'EOF' > /etc/zivpn/torrent-block.rules
+#!/bin/bash
+# ZiVPN torrent blocker rules (edit as needed)
+PORTS_TCP=(6881 6882 6883 6884 6885 6886 6887 6888 6889 6969 51413)
+PORTS_UDP=(6881 6882 6883 6884 6885 6886 6887 6888 6889 6969 51413)
+STRING_PATTERNS=("BitTorrent" "BitTorrent protocol" "peer_id=" "announce" "info_hash" "get_peers" "announce_peer" "find_node")
+L7_PROTOCOLS=("bittorrent")
+EOF
+
+cat <<'EOF' > /etc/zivpn/torrent-block-apply.sh
+#!/bin/bash
+set -euo pipefail
+
+RULES_FILE="/etc/zivpn/torrent-block.rules"
+if [ ! -f "$RULES_FILE" ]; then
+  echo "Rules file not found: $RULES_FILE" >&2
+  exit 1
+fi
+
+source "$RULES_FILE"
+
+join_by() {
+  local IFS=","
+  echo "$*"
+}
+
+add_rule() {
+  if ! iptables -C "$@" &>/dev/null; then
+    iptables -A "$@"
+  fi
+}
+
+add_string_rules() {
+  local proto="$1"
+  for pattern in "${STRING_PATTERNS[@]:-}"; do
+    add_rule INPUT -p "$proto" -m string --string "$pattern" --algo bm -j DROP
+    add_rule FORWARD -p "$proto" -m string --string "$pattern" --algo bm -j DROP
+  done
+}
+
+if [ "${#PORTS_TCP[@]:-0}" -gt 0 ]; then
+  tcp_ports="$(join_by "${PORTS_TCP[@]}")"
+  add_rule INPUT -p tcp -m multiport --dports "$tcp_ports" -j DROP
+  add_rule FORWARD -p tcp -m multiport --dports "$tcp_ports" -j DROP
+fi
+
+if [ "${#PORTS_UDP[@]:-0}" -gt 0 ]; then
+  udp_ports="$(join_by "${PORTS_UDP[@]}")"
+  add_rule INPUT -p udp -m multiport --dports "$udp_ports" -j DROP
+  add_rule FORWARD -p udp -m multiport --dports "$udp_ports" -j DROP
+fi
+
+add_string_rules tcp
+add_string_rules udp
+
+if iptables -m layer7 -h &>/dev/null; then
+  for proto in "${L7_PROTOCOLS[@]:-}"; do
+    add_rule INPUT -p tcp -m layer7 --l7proto "$proto" -j DROP
+    add_rule FORWARD -p tcp -m layer7 --l7proto "$proto" -j DROP
+  done
+fi
+
+if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+  for port in "${PORTS_TCP[@]:-}"; do
+    ufw deny "$port"/tcp &>/dev/null || true
+  done
+  for port in "${PORTS_UDP[@]:-}"; do
+    ufw deny "$port"/udp &>/dev/null || true
+  done
+fi
+EOF
+
+cat <<'EOF' > /etc/zivpn/torrent-block-remove.sh
+#!/bin/bash
+set -euo pipefail
+
+RULES_FILE="/etc/zivpn/torrent-block.rules"
+if [ ! -f "$RULES_FILE" ]; then
+  exit 0
+fi
+
+source "$RULES_FILE"
+
+join_by() {
+  local IFS=","
+  echo "$*"
+}
+
+delete_rule() {
+  while iptables -C "$@" &>/dev/null; do
+    iptables -D "$@"
+  done
+}
+
+delete_string_rules() {
+  local proto="$1"
+  for pattern in "${STRING_PATTERNS[@]:-}"; do
+    delete_rule INPUT -p "$proto" -m string --string "$pattern" --algo bm -j DROP
+    delete_rule FORWARD -p "$proto" -m string --string "$pattern" --algo bm -j DROP
+  done
+}
+
+if [ "${#PORTS_TCP[@]:-0}" -gt 0 ]; then
+  tcp_ports="$(join_by "${PORTS_TCP[@]}")"
+  delete_rule INPUT -p tcp -m multiport --dports "$tcp_ports" -j DROP
+  delete_rule FORWARD -p tcp -m multiport --dports "$tcp_ports" -j DROP
+fi
+
+if [ "${#PORTS_UDP[@]:-0}" -gt 0 ]; then
+  udp_ports="$(join_by "${PORTS_UDP[@]}")"
+  delete_rule INPUT -p udp -m multiport --dports "$udp_ports" -j DROP
+  delete_rule FORWARD -p udp -m multiport --dports "$udp_ports" -j DROP
+fi
+
+delete_string_rules tcp
+delete_string_rules udp
+
+if iptables -m layer7 -h &>/dev/null; then
+  for proto in "${L7_PROTOCOLS[@]:-}"; do
+    delete_rule INPUT -p tcp -m layer7 --l7proto "$proto" -j DROP
+    delete_rule FORWARD -p tcp -m layer7 --l7proto "$proto" -j DROP
+  done
+fi
+
+if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+  for port in "${PORTS_TCP[@]:-}"; do
+    ufw delete deny "$port"/tcp &>/dev/null || true
+  done
+  for port in "${PORTS_UDP[@]:-}"; do
+    ufw delete deny "$port"/udp &>/dev/null || true
+  done
+fi
+EOF
+
+chmod +x /etc/zivpn/torrent-block-apply.sh /etc/zivpn/torrent-block-remove.sh
 cat <<'EOF' > /etc/zivpn/provision-protocol.sh
 #!/bin/bash
 set -euo pipefail
@@ -285,6 +425,13 @@ iptables -t nat -A PREROUTING -i "$iface" -p udp --dport 6000:19999 -j DNAT --to
 ufw allow 6000:19999/udp &>/dev/null
 ufw allow 5667/udp &>/dev/null
 ufw allow $API_PORT/tcp &>/dev/null
+
+if [[ "$enable_torrent_blocker" =~ ^[Yy]$ ]]; then
+  run_silent "Applying Torrent Blocker" "/etc/zivpn/torrent-block-apply.sh"
+else
+  print_task "Skipping Torrent Blocker"
+  echo ""
+fi
 
 rm -f "$0" install.tmp install.log &>/dev/null
 

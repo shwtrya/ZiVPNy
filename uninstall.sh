@@ -37,6 +37,7 @@ echo ""
 
 run_silent "Stopping services" "systemctl stop zivpn.service zivpn-api.service zivpn-bot.service zivpn_backfill.service &>/dev/null; systemctl disable zivpn.service zivpn-api.service zivpn-bot.service zivpn_backfill.service &>/dev/null; killall zivpn zivpn-api zivpn-bot &>/dev/null"
 
+run_silent "Removing torrent blocker" "[ -x /etc/zivpn/torrent-block-remove.sh ] && /etc/zivpn/torrent-block-remove.sh || true"
 run_silent "Removing files" "rm -rf /etc/zivpn /usr/local/bin/zivpn /etc/systemd/system/zivpn.service /etc/systemd/system/zivpn-api.service /etc/systemd/system/zivpn-bot.service /etc/systemd/system/zivpn_backfill.service /etc/zivpn-iptables-fix-applied /usr/local/bin/menu-zivpn /etc/zivpn/bot-config.json /etc/zivpn/apikey"
 
 iface=$(ip -4 route ls | grep default | grep -Po '(?<=dev )(\S+)' | head -1)

@@ -47,6 +47,14 @@ Saat script berjalan, Anda akan diminta memasukkan:
     *   **Bot Token**: Token dari @BotFather.
     *   **Admin ID**: ID Telegram Anda (cek di @userinfobot).
     *   **Bot Type**: Free atau Paid.
+4.  **Torrent Blocker** (Opsional):
+    *   Aktifkan untuk memblokir trafik torrent pada port umum dan string BitTorrent (iptables/ufw).
+    *   Rule dapat diubah di `/etc/zivpn/torrent-block.rules`.
+
+### Enable/Disable Torrent Blocker
+*   **Enable**: Jalankan `/etc/zivpn/torrent-block-apply.sh`
+*   **Disable**: Jalankan `/etc/zivpn/torrent-block-remove.sh`
+*   **Custom rule**: Edit `/etc/zivpn/torrent-block.rules`, lalu jalankan ulang apply script.
 
 ---
 
