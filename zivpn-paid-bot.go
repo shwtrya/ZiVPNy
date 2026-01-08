@@ -174,6 +174,7 @@ func handleMessage(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *BotConfi
 func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config *BotConfig) {
 	chatID := query.Message.Chat.ID
 	userID := query.From.ID
+	callbackText := ""
 
 	switch {
 	case query.Data == "menu_create":
@@ -199,7 +200,7 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 	case query.Data == "cancel":
 		cancelOperation(bot, chatID, userID, config)
 	case strings.HasPrefix(query.Data, "section_"):
-		// Section headers are non-actionable.
+		callbackText = "Pilih menu di bawah header."
 
 	case query.Data == "menu_admin":
 		if isAdmin(config, userID) {
@@ -221,7 +222,7 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 		selectPackageForCreate(bot, chatID, userID, query.Data)
 	}
 
-	bot.Request(tgbotapi.NewCallback(query.ID, ""))
+	bot.Request(tgbotapi.NewCallback(query.ID, callbackText))
 }
 
 func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, config *BotConfig) {
