@@ -19,14 +19,15 @@ import (
 )
 
 const (
-	ConfigFile  = "/etc/zivpn/config.json"
-	UserDB      = "/etc/zivpn/users.json"
-	DomainFile  = "/etc/zivpn/domain"
-	ApiKeyFile  = "/etc/zivpn/apikey"
-	Port        = "/etc/zivpn/api_port"
-	PortFile    = "/etc/zivpn/port"
-	ProtocolDir = "/etc/zivpn/protocols"
-	LogFile     = "/var/log/zivpn.log"
+	ConfigFile   = "/etc/zivpn/config.json"
+	UserDB       = "/etc/zivpn/users.json"
+	DomainFile   = "/etc/zivpn/domain"
+	ApiKeyFile   = "/etc/zivpn/apikey"
+	Port         = "/etc/zivpn/api_port"
+	PortFile     = "/etc/zivpn/port"
+	ProtocolDir  = "/etc/zivpn/protocols"
+	LogFile      = "/var/log/zivpn.log"
+	BotNotifyURL = "http://127.0.0.1:9871/notify"
 )
 
 var AuthToken = "AutoFtBot-agskjgdvsbdreiWG1234512SDKrqw"
@@ -77,6 +78,14 @@ type Response struct {
 	Data    interface{} `json:"data,omitempty"`
 }
 
+type BotNotification struct {
+	Event   string   `json:"event"`
+	Message string   `json:"message,omitempty"`
+	Users   []string `json:"users,omitempty"`
+	Count   int      `json:"count,omitempty"`
+	Date    string   `json:"date,omitempty"`
+}
+
 var mutex = &sync.Mutex{}
 
 func main() {
@@ -119,6 +128,38 @@ func jsonResponse(w http.ResponseWriter, status int, success bool, message strin
 		Message: message,
 		Data:    data,
 	})
+}
+
+func notifyBot(event string, users []string, count int, message string) {
+	payload := BotNotification{
+		Event:   event,
+		Message: message,
+		Users:   users,
+		Count:   count,
+		Date:    time.Now().Format("2006-01-02"),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("Failed to marshal bot notification: %v", err)
+		return
+	}
+
+	req, err := http.NewRequest(http.MethodPost, BotNotifyURL, strings.NewReader(string(body)))
+	if err != nil {
+		log.Printf("Failed to create bot notification request: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", AuthToken)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Failed to send bot notification: %v", err)
+		return
+	}
+	defer resp.Body.Close()
 }
 
 func createUser(w http.ResponseWriter, r *http.Request) {
@@ -735,6 +776,7 @@ func checkExpiration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	revokedCount := 0
+	revokedUsers := []string{}
 	updatedUsers := make([]UserStore, 0, len(users))
 	for _, u := range users {
 		normalized := normalizeStoredUser(u)
@@ -745,6 +787,7 @@ func checkExpiration(w http.ResponseWriter, r *http.Request) {
 			}
 			normalized.Status = "expired"
 			revokedCount++
+			revokedUsers = append(revokedUsers, normalized.Password)
 		}
 		updatedUsers = append(updatedUsers, normalized)
 	}
@@ -766,6 +809,7 @@ func checkExpiration(w http.ResponseWriter, r *http.Request) {
 
 	if revokedCount > 0 {
 		restartService()
+		notifyBot("expire", revokedUsers, revokedCount, "")
 	}
 
 	jsonResponse(w, http.StatusOK, true, fmt.Sprintf("Expiration check complete. Revoked: %d", revokedCount), nil)
@@ -851,6 +895,8 @@ func cleanupExpired(w http.ResponseWriter, r *http.Request) {
 	for p := range expiredPasswords {
 		deletedList = append(deletedList, p)
 	}
+
+	notifyBot("cleanup", deletedList, deletedCount, "")
 
 	jsonResponse(w, http.StatusOK, true, fmt.Sprintf("Berhasil menghapus %d akun expired", deletedCount), map[string]interface{}{
 		"deleted_count": deletedCount,

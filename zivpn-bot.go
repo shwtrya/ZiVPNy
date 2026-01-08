@@ -30,6 +30,7 @@ const (
 	ApiKeyFile    = "/etc/zivpn/apikey"
 	DomainFile    = "/etc/zivpn/domain"
 	PortFile      = "/etc/zivpn/port"
+	BotNotifyAddr = "127.0.0.1:9871"
 )
 
 var ApiUrl = "http://127.0.0.1:" + PortFile + "/api"
@@ -37,10 +38,11 @@ var ApiUrl = "http://127.0.0.1:" + PortFile + "/api"
 var ApiKey = "AutoFtBot-agskjgdvsbdreiWG1234512SDKrqw"
 
 type BotConfig struct {
-	BotToken string `json:"bot_token"`
-	AdminID  int64  `json:"admin_id"`
-	Mode     string `json:"mode"`   // "public" or "private"
-	Domain   string `json:"domain"` // Domain from setup
+	BotToken string  `json:"bot_token"`
+	AdminID  int64   `json:"admin_id"`
+	AdminIDs []int64 `json:"admin_ids,omitempty"`
+	Mode     string  `json:"mode"`   // "public" or "private"
+	Domain   string  `json:"domain"` // Domain from setup
 }
 
 type IpInfo struct {
@@ -104,6 +106,8 @@ func main() {
 	bot.Debug = false
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
+	go startNotificationServer(bot, &config)
+
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 	updates := bot.GetUpdatesChan(u)
@@ -130,7 +134,7 @@ func handleMessage(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *BotConfi
 	}
 
 	// Handle Document Upload (Restore)
-	if msg.Document != nil && msg.From.ID == config.AdminID {
+	if msg.Document != nil && isAdmin(config, msg.From.ID) {
 		if state, exists := userStates[msg.From.ID]; exists && state == "waiting_restore_file" {
 			processRestoreFile(bot, msg, config)
 			return
@@ -157,7 +161,7 @@ func handleMessage(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *BotConfi
 func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config *BotConfig) {
 	// Access Control (Special case for toggle_mode)
 	if !isAllowed(config, query.From.ID) {
-		if query.Data != "toggle_mode" || query.From.ID != config.AdminID {
+		if query.Data != "toggle_mode" || !isAdmin(config, query.From.ID) {
 			bot.Request(tgbotapi.NewCallback(query.ID, "Akses Ditolak"))
 			return
 		}
@@ -175,31 +179,31 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 	case query.Data == "menu_renew":
 		showUserSelection(bot, chatID, 1, "renew")
 	case query.Data == "menu_list":
-		if userID == config.AdminID {
+		if isAdmin(config, userID) {
 			listUsers(bot, chatID)
 		}
 	case query.Data == "menu_online":
-		if userID == config.AdminID {
+		if isAdmin(config, userID) {
 			listOnlineUsers(bot, chatID)
 		}
 	case query.Data == "menu_cleanup":
-		if userID == config.AdminID {
+		if isAdmin(config, userID) {
 			cleanupExpiredUsers(bot, chatID, config)
 		}
 	case query.Data == "menu_info":
-		if userID == config.AdminID {
+		if isAdmin(config, userID) {
 			systemInfo(bot, chatID, config)
 		}
 	case query.Data == "menu_backup_restore":
-		if userID == config.AdminID {
+		if isAdmin(config, userID) {
 			showBackupRestoreMenu(bot, chatID)
 		}
 	case query.Data == "menu_backup_action":
-		if userID == config.AdminID {
+		if isAdmin(config, userID) {
 			performBackup(bot, chatID)
 		}
 	case query.Data == "menu_restore_action":
-		if userID == config.AdminID {
+		if isAdmin(config, userID) {
 			startRestore(bot, chatID, userID)
 		}
 	case query.Data == "cancel":
@@ -777,7 +781,7 @@ func getMainMenuKeyboard(config *BotConfig, userID int64) tgbotapi.InlineKeyboar
 	}
 
 	// Admin Menu (Admin Only)
-	if userID == config.AdminID {
+	if isAdmin(config, userID) {
 		modeLabel := "🔐 Mode: Private"
 		if config.Mode == "public" {
 			modeLabel = "🌍 Mode: Public"
@@ -1026,7 +1030,16 @@ func formatProtocols(data map[string]interface{}) string {
 // ==========================================
 
 func isAllowed(config *BotConfig, userID int64) bool {
-	return config.Mode == "public" || userID == config.AdminID
+	return config.Mode == "public" || isAdmin(config, userID)
+}
+
+func isAdmin(config *BotConfig, userID int64) bool {
+	for _, adminID := range config.AdminIDs {
+		if userID == adminID {
+			return true
+		}
+	}
+	return userID == config.AdminID
 }
 
 func saveConfig(config *BotConfig) error {
@@ -1045,6 +1058,10 @@ func loadConfig() (BotConfig, error) {
 	}
 	err = json.Unmarshal(file, &config)
 
+	if len(config.AdminIDs) == 0 && config.AdminID != 0 {
+		config.AdminIDs = []int64{config.AdminID}
+	}
+
 	// Jika domain kosong di config, coba baca dari file domain
 	if config.Domain == "" {
 		if domainBytes, err := ioutil.ReadFile(DomainFile); err == nil {
@@ -1053,6 +1070,102 @@ func loadConfig() (BotConfig, error) {
 	}
 
 	return config, err
+}
+
+// ==========================================
+// Notification Server
+// ==========================================
+
+type BotNotification struct {
+	Event   string   `json:"event"`
+	Message string   `json:"message"`
+	Users   []string `json:"users,omitempty"`
+	Count   int      `json:"count,omitempty"`
+	Date    string   `json:"date,omitempty"`
+}
+
+func startNotificationServer(bot *tgbotapi.BotAPI, config *BotConfig) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/notify", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if r.Header.Get("X-API-Key") != ApiKey {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var payload BotNotification
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid payload", http.StatusBadRequest)
+			return
+		}
+
+		message := payload.Message
+		if message == "" {
+			message = formatNotificationMessage(payload)
+		}
+
+		if message != "" {
+			notifyAdmins(bot, config, message)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+
+	go func() {
+		if err := http.ListenAndServe(BotNotifyAddr, mux); err != nil {
+			log.Printf("Notification server stopped: %v", err)
+		}
+	}()
+}
+
+func formatNotificationMessage(payload BotNotification) string {
+	switch payload.Event {
+	case "expire":
+		if payload.Count == 0 {
+			return "⏰ Expire check selesai. Tidak ada akun yang direvoke."
+		}
+		if len(payload.Users) > 0 {
+			return fmt.Sprintf("⏰ Expire check selesai. %d akun direvoke:\n- %s", payload.Count, strings.Join(payload.Users, "\n- "))
+		}
+		return fmt.Sprintf("⏰ Expire check selesai. %d akun direvoke.", payload.Count)
+	case "cleanup":
+		if payload.Count == 0 {
+			return "🧹 Cleanup selesai. Tidak ada akun expired yang dihapus."
+		}
+		if len(payload.Users) > 0 {
+			return fmt.Sprintf("🧹 Cleanup selesai. %d akun dihapus:\n- %s", payload.Count, strings.Join(payload.Users, "\n- "))
+		}
+		return fmt.Sprintf("🧹 Cleanup selesai. %d akun dihapus.", payload.Count)
+	default:
+		return payload.Message
+	}
+}
+
+func notifyAdmins(bot *tgbotapi.BotAPI, config *BotConfig, message string) {
+	for _, adminID := range adminRecipients(config) {
+		msg := tgbotapi.NewMessage(adminID, message)
+		bot.Send(msg)
+	}
+}
+
+func adminRecipients(config *BotConfig) []int64 {
+	unique := make(map[int64]struct{})
+	for _, adminID := range config.AdminIDs {
+		unique[adminID] = struct{}{}
+	}
+	if config.AdminID != 0 {
+		unique[config.AdminID] = struct{}{}
+	}
+
+	recipients := make([]int64, 0, len(unique))
+	for adminID := range unique {
+		recipients = append(recipients, adminID)
+	}
+	return recipients
 }
 
 // ==========================================
