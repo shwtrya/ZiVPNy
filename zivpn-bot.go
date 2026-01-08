@@ -29,7 +29,7 @@ const (
 	ApiPortFile   = "/etc/zivpn/api_port"
 	ApiKeyFile    = "/etc/zivpn/apikey"
 	DomainFile    = "/etc/zivpn/domain"
-	PortFile	  = "/etc/zivpn/port"
+	PortFile      = "/etc/zivpn/port"
 )
 
 var ApiUrl = "http://127.0.0.1:" + PortFile + "/api"
@@ -50,10 +50,12 @@ type IpInfo struct {
 }
 
 type UserData struct {
-	Password string `json:"password"`
-	Expired  string `json:"expired"`
-	Status   string `json:"status"`
-	IpLimit  int    `json:"ip_limit"`
+	Username  string   `json:"username"`
+	Password  string   `json:"password"`
+	Expired   string   `json:"expired"`
+	Status    string   `json:"status"`
+	Protocols []string `json:"protocols"`
+	IpLimit   int      `json:"ip_limit"`
 }
 
 // ==========================================
@@ -226,6 +228,15 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 			return
 		}
 		tempUserData[userID]["username"] = text
+		userStates[userID] = "create_protocols"
+		sendMessage(bot, chatID, "🧩 Masukkan protokol (pisahkan koma): udp, ssh, dropbear, ws, ssl")
+
+	case "create_protocols":
+		protocols, ok := parseProtocolsInput(bot, chatID, text, true)
+		if !ok {
+			return
+		}
+		tempUserData[userID]["protocols"] = strings.Join(protocols, ",")
 		userStates[userID] = "create_days"
 		sendMessage(bot, chatID, "⏳ Masukkan Durasi (hari):")
 
@@ -235,17 +246,31 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 			return
 		}
 		tempUserData[userID]["days"] = text
-		
+
 		days, _ := strconv.Atoi(text)
-		createUser(bot, chatID, tempUserData[userID]["username"], days, config)
+		createUser(bot, chatID, tempUserData[userID]["username"], days, tempUserData[userID]["protocols"], config)
 		resetState(userID)
+
+	case "renew_protocols":
+		if text == "" || strings.EqualFold(text, "-") {
+			userStates[userID] = "renew_days"
+			sendMessage(bot, chatID, "⏳ Masukkan Tambahan Durasi (hari):")
+			return
+		}
+		protocols, ok := parseProtocolsInput(bot, chatID, text, false)
+		if !ok {
+			return
+		}
+		tempUserData[userID]["protocols"] = strings.Join(protocols, ",")
+		userStates[userID] = "renew_days"
+		sendMessage(bot, chatID, "⏳ Masukkan Tambahan Durasi (hari):")
 
 	case "renew_days":
 		days, ok := validateNumber(bot, chatID, text, 1, 9999, "Durasi")
 		if !ok {
 			return
 		}
-		renewUser(bot, chatID, tempUserData[userID]["username"], days, config)
+		renewUser(bot, chatID, tempUserData[userID]["username"], days, tempUserData[userID]["protocols"], config)
 		resetState(userID)
 	}
 }
@@ -263,8 +288,8 @@ func startCreateUser(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
 func startRenewUser(bot *tgbotapi.BotAPI, chatID int64, userID int64, data string) {
 	username := strings.TrimPrefix(data, "select_renew:")
 	tempUserData[userID] = map[string]string{"username": username}
-	userStates[userID] = "renew_days"
-	sendMessage(bot, chatID, fmt.Sprintf("🔄 Renewing %s\n⏳ Masukkan Tambahan Durasi (hari):", username))
+	userStates[userID] = "renew_protocols"
+	sendMessage(bot, chatID, fmt.Sprintf("🔄 Renewing %s\n🧩 Masukkan protokol baru (pisahkan koma) atau kosong untuk mempertahankan:", username))
 }
 
 func confirmDeleteUser(bot *tgbotapi.BotAPI, chatID int64, data string) {
@@ -305,11 +330,16 @@ func toggleMode(bot *tgbotapi.BotAPI, chatID int64, userID int64, config *BotCon
 	showMainMenu(bot, chatID, config)
 }
 
-func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int, config *BotConfig) {
-	res, err := apiCall("POST", "/user/create", map[string]interface{}{
+func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int, protocols string, config *BotConfig) {
+	payload := map[string]interface{}{
 		"password": username,
 		"days":     days,
-	})
+	}
+	if protocols != "" {
+		payload["protocols"] = strings.Split(protocols, ",")
+	}
+
+	res, err := apiCall("POST", "/user/create", payload)
 
 	if err != nil {
 		replyError(bot, chatID, "Error API: "+err.Error())
@@ -325,11 +355,16 @@ func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int, c
 	}
 }
 
-func renewUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int, config *BotConfig) {
-	res, err := apiCall("POST", "/user/renew", map[string]interface{}{
+func renewUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int, protocols string, config *BotConfig) {
+	payload := map[string]interface{}{
 		"password": username,
 		"days":     days,
-	})
+	}
+	if protocols != "" {
+		payload["protocols"] = strings.Split(protocols, ",")
+	}
+
+	res, err := apiCall("POST", "/user/renew", payload)
 
 	if err != nil {
 		replyError(bot, chatID, "Error API: "+err.Error())
@@ -514,7 +549,7 @@ func performBackup(bot *tgbotapi.BotAPI, chatID int64) {
 	zipWriter.Close()
 
 	fileName := fmt.Sprintf("zivpn-backup-%s.zip", time.Now().Format("20060102-150405"))
-	
+
 	// Create a temporary file for the upload
 	tmpFile := "/tmp/" + fileName
 	if err := ioutil.WriteFile(tmpFile, buf.Bytes(), 0644); err != nil {
@@ -525,7 +560,7 @@ func performBackup(bot *tgbotapi.BotAPI, chatID int64) {
 
 	doc := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(tmpFile))
 	doc.Caption = "✅ Backup Data ZiVPN"
-	
+
 	deleteLastMessage(bot, chatID)
 	bot.Send(doc)
 }
@@ -538,7 +573,7 @@ func startRestore(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
 func processRestoreFile(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *BotConfig) {
 	chatID := msg.Chat.ID
 	userID := msg.From.ID
-	
+
 	resetState(userID)
 	sendMessage(bot, chatID, "⏳ Sedang memproses file...")
 
@@ -574,13 +609,13 @@ func processRestoreFile(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *Bot
 	for _, f := range zipReader.File {
 		// Security check: only allow specific files
 		validFiles := map[string]bool{
-			"config.json": true,
-			"users.json": true,
+			"config.json":     true,
+			"users.json":      true,
 			"bot-config.json": true,
-			"domain": true,
-			"apikey": true,
+			"domain":          true,
+			"apikey":          true,
 		}
-		
+
 		if !validFiles[f.Name] {
 			continue
 		}
@@ -604,10 +639,10 @@ func processRestoreFile(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *Bot
 	// Restart Services
 	exec.Command("systemctl", "restart", "zivpn").Run()
 	exec.Command("systemctl", "restart", "zivpn-api").Run()
-	
+
 	msgSuccess := tgbotapi.NewMessage(chatID, "✅ Restore Berhasil!\nService ZiVPN, API, dan Bot telah direstart.")
 	bot.Send(msgSuccess)
-	
+
 	// Restart Bot with delay to allow message sending
 	go func() {
 		time.Sleep(2 * time.Second)
@@ -656,7 +691,7 @@ func getMainMenuKeyboard(config *BotConfig, userID int64) tgbotapi.InlineKeyboar
 		}
 
 		rows[1] = append(rows[1], tgbotapi.NewInlineKeyboardButtonData("📋 List Passwords", "menu_list"))
-		
+
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📊 System Info", "menu_info"),
 			tgbotapi.NewInlineKeyboardButtonData("💾 Backup & Restore", "menu_backup_restore"),
@@ -677,12 +712,14 @@ func sendAccountInfo(bot *tgbotapi.BotAPI, chatID int64, data map[string]interfa
 		domain = "(Not Configured)"
 	}
 
-	msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n  ACCOUNT ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nPassword   : %s\nCITY       : %s\nISP        : %s\nIP ISP     : %s\nDomain     : %s\nExpired On : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
+	protocolInfo := formatProtocols(data)
+	msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n  ACCOUNT ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nPassword   : %s\nCITY       : %s\nISP        : %s\nIP ISP     : %s\nDomain     : %s\nProtocols  : %s\nExpired On : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
 		data["password"],
 		ipInfo.City,
 		ipInfo.Isp,
 		ipInfo.Query,
 		domain,
+		protocolInfo,
 		data["expired"],
 	)
 
@@ -812,6 +849,71 @@ func validateNumber(bot *tgbotapi.BotAPI, chatID int64, text string, min, max in
 		return 0, false
 	}
 	return val, true
+}
+
+func parseProtocolsInput(bot *tgbotapi.BotAPI, chatID int64, text string, require bool) ([]string, bool) {
+	supported := map[string]bool{
+		"udp":      true,
+		"ssh":      true,
+		"dropbear": true,
+		"ws":       true,
+		"ssl":      true,
+	}
+	input := strings.TrimSpace(strings.ToLower(text))
+	if input == "" {
+		if require {
+			sendMessage(bot, chatID, "❌ Protokol wajib diisi. Contoh: udp, ssh, ws")
+			return nil, false
+		}
+		return nil, true
+	}
+	if input == "all" {
+		return []string{"udp", "ssh", "dropbear", "ws", "ssl"}, true
+	}
+	parts := strings.Split(input, ",")
+	seen := map[string]bool{}
+	var protocols []string
+	for _, part := range parts {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		if !supported[p] {
+			sendMessage(bot, chatID, fmt.Sprintf("❌ Protokol tidak dikenal: %s", p))
+			return nil, false
+		}
+		if !seen[p] {
+			seen[p] = true
+			protocols = append(protocols, p)
+		}
+	}
+	if require && len(protocols) == 0 {
+		sendMessage(bot, chatID, "❌ Protokol wajib diisi. Contoh: udp, ssh, ws")
+		return nil, false
+	}
+	return protocols, true
+}
+
+func formatProtocols(data map[string]interface{}) string {
+	if value, ok := data["protocols"]; ok && value != nil {
+		switch v := value.(type) {
+		case string:
+			if v != "" {
+				return v
+			}
+		case []interface{}:
+			parts := []string{}
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					parts = append(parts, s)
+				}
+			}
+			if len(parts) > 0 {
+				return strings.Join(parts, ",")
+			}
+		}
+	}
+	return "udp"
 }
 
 // ==========================================

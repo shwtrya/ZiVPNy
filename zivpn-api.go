@@ -15,14 +15,25 @@ import (
 )
 
 const (
-	ConfigFile = "/etc/zivpn/config.json"
-	UserDB     = "/etc/zivpn/users.json"
-	DomainFile = "/etc/zivpn/domain"
-	ApiKeyFile = "/etc/zivpn/apikey"
-	Port       = "/etc/zivpn/api_port"
+	ConfigFile  = "/etc/zivpn/config.json"
+	UserDB      = "/etc/zivpn/users.json"
+	DomainFile  = "/etc/zivpn/domain"
+	ApiKeyFile  = "/etc/zivpn/apikey"
+	Port        = "/etc/zivpn/api_port"
+	ProtocolDir = "/etc/zivpn/protocols"
 )
 
 var AuthToken = "AutoFtBot-agskjgdvsbdreiWG1234512SDKrqw"
+
+var supportedProtocols = map[string]bool{
+	"udp":      true,
+	"ssh":      true,
+	"dropbear": true,
+	"ws":       true,
+	"ssl":      true,
+}
+
+var defaultProtocols = []string{"udp"}
 
 type Config struct {
 	Listen string `json:"listen"`
@@ -36,19 +47,25 @@ type Config struct {
 }
 
 type UserRequest struct {
-	Password string `json:"password"`
-	Days     int    `json:"days"`
+	Username        string                       `json:"username"`
+	Password        string                       `json:"password"`
+	Days            int                          `json:"days"`
+	Protocols       []string                     `json:"protocols"`
+	ProtocolOptions map[string]map[string]string `json:"protocol_options"`
 }
 
 type UserStore struct {
-	Password string `json:"password"`
-	Expired  string `json:"expired"`
-	Status   string `json:"status"`
+	Username        string                       `json:"username"`
+	Password        string                       `json:"password"`
+	Expired         string                       `json:"expired"`
+	Status          string                       `json:"status"`
+	Protocols       []string                     `json:"protocols"`
+	ProtocolOptions map[string]map[string]string `json:"protocol_options,omitempty"`
 }
 
 type Response struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
+	Success bool        `json:"success"`
+	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
 }
 
@@ -107,7 +124,16 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Password == "" || req.Days <= 0 {
+	username := strings.TrimSpace(req.Username)
+	password := strings.TrimSpace(req.Password)
+	if username == "" && password != "" {
+		username = password
+	}
+	if password == "" && username != "" {
+		password = username
+	}
+
+	if password == "" || req.Days <= 0 {
 		jsonResponse(w, http.StatusBadRequest, false, "Password dan days harus valid", nil)
 		return
 	}
@@ -122,16 +148,10 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, p := range config.Auth.Config {
-		if p == req.Password {
+		if p == password {
 			jsonResponse(w, http.StatusConflict, false, "User sudah ada", nil)
 			return
 		}
-	}
-
-	config.Auth.Config = append(config.Auth.Config, req.Password)
-	if err := saveConfig(config); err != nil {
-		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan config", nil)
-		return
 	}
 
 	expDate := time.Now().Add(time.Duration(req.Days) * 24 * time.Hour).Format("2006-01-02")
@@ -142,15 +162,39 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for _, u := range users {
+		if normalizeStoredUser(u).Password == password {
+			jsonResponse(w, http.StatusConflict, false, "User sudah ada", nil)
+			return
+		}
+	}
+
+	protocols := normalizeProtocols(req.Protocols)
+	if usesProtocol(protocols, "udp") {
+		config.Auth.Config = append(config.Auth.Config, password)
+		if err := saveConfig(config); err != nil {
+			jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan config", nil)
+			return
+		}
+	}
+
 	newUser := UserStore{
-		Password: req.Password,
-		Expired:  expDate,
-		Status:   "active",
+		Username:        username,
+		Password:        password,
+		Expired:         expDate,
+		Status:          "active",
+		Protocols:       protocols,
+		ProtocolOptions: req.ProtocolOptions,
 	}
 	users = append(users, newUser)
 
 	if err := saveUsers(users); err != nil {
 		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan database user", nil)
+		return
+	}
+
+	if err := syncProtocolConfigs(users); err != nil {
+		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan konfigurasi protokol", nil)
 		return
 	}
 
@@ -164,10 +208,12 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 		domain = strings.TrimSpace(string(domainBytes))
 	}
 
-	jsonResponse(w, http.StatusOK, true, "User berhasil dibuat", map[string]string{
-		"password": req.Password,
-		"expired":  expDate,
-		"domain":   domain,
+	jsonResponse(w, http.StatusOK, true, "User berhasil dibuat", map[string]interface{}{
+		"username":  username,
+		"password":  password,
+		"expired":   expDate,
+		"domain":    domain,
+		"protocols": protocols,
 	})
 }
 
@@ -183,6 +229,11 @@ func deleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	password := strings.TrimSpace(req.Password)
+	if password == "" {
+		password = strings.TrimSpace(req.Username)
+	}
+
 	mutex.Lock()
 	defer mutex.Unlock()
 
@@ -195,7 +246,7 @@ func deleteUser(w http.ResponseWriter, r *http.Request) {
 	foundInConfig := false
 	newConfigAuth := []string{}
 	for _, p := range config.Auth.Config {
-		if p == req.Password {
+		if p == password {
 			foundInConfig = true
 		} else {
 			newConfigAuth = append(newConfigAuth, p)
@@ -219,11 +270,12 @@ func deleteUser(w http.ResponseWriter, r *http.Request) {
 	foundInDB := false
 	newUsers := []UserStore{}
 	for _, u := range users {
-		if u.Password == req.Password {
+		normalized := normalizeStoredUser(u)
+		if normalized.Password == password {
 			foundInDB = true
 			continue
 		}
-		newUsers = append(newUsers, u)
+		newUsers = append(newUsers, normalized)
 	}
 
 	if !foundInConfig && !foundInDB {
@@ -236,6 +288,11 @@ func deleteUser(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan database user", nil)
 			return
 		}
+	}
+
+	if err := syncProtocolConfigs(newUsers); err != nil {
+		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan konfigurasi protokol", nil)
+		return
 	}
 
 	if foundInConfig {
@@ -260,6 +317,15 @@ func renewUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	username := strings.TrimSpace(req.Username)
+	password := strings.TrimSpace(req.Password)
+	if username == "" && password != "" {
+		username = password
+	}
+	if password == "" && username != "" {
+		password = username
+	}
+
 	mutex.Lock()
 	defer mutex.Unlock()
 
@@ -272,32 +338,44 @@ func renewUser(w http.ResponseWriter, r *http.Request) {
 	found := false
 	newUsers := []UserStore{}
 	var newExpDate string
+	var updatedProtocols []string
 
 	for _, u := range users {
-		if u.Password == req.Password {
+		normalized := normalizeStoredUser(u)
+		if normalized.Password == password {
 			found = true
-			currentExp, err := time.Parse("2006-01-02", u.Expired)
+			currentExp, err := time.Parse("2006-01-02", normalized.Expired)
 			if err != nil {
 				currentExp = time.Now()
 			}
-			
+
 			if currentExp.Before(time.Now()) {
 				currentExp = time.Now()
 			}
 
 			newExp := currentExp.Add(time.Duration(req.Days) * 24 * time.Hour)
 			newExpDate = newExp.Format("2006-01-02")
-			
-			u.Expired = newExpDate
-			
-			if u.Status == "locked" {
-				u.Status = "active"
-				go enableUser(req.Password)
+
+			normalized.Expired = newExpDate
+
+			if normalized.Status == "locked" {
+				normalized.Status = "active"
+				if usesProtocol(normalized.Protocols, "udp") {
+					go enableUser(password)
+				}
 			}
 
-			newUsers = append(newUsers, u)
+			if len(req.Protocols) > 0 {
+				normalized.Protocols = normalizeProtocols(req.Protocols)
+			}
+			if req.ProtocolOptions != nil {
+				normalized.ProtocolOptions = req.ProtocolOptions
+			}
+
+			updatedProtocols = normalized.Protocols
+			newUsers = append(newUsers, normalized)
 		} else {
-			newUsers = append(newUsers, u)
+			newUsers = append(newUsers, normalizeStoredUser(u))
 		}
 	}
 
@@ -306,8 +384,39 @@ func renewUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	config, err := loadConfig()
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, false, "Gagal membaca config", nil)
+		return
+	}
+
+	if usesProtocol(updatedProtocols, "udp") {
+		exists := false
+		for _, p := range config.Auth.Config {
+			if p == password {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			config.Auth.Config = append(config.Auth.Config, password)
+		}
+	} else {
+		config.Auth.Config = removeFromList(config.Auth.Config, password)
+	}
+
+	if err := saveConfig(config); err != nil {
+		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan config", nil)
+		return
+	}
+
 	if err := saveUsers(newUsers); err != nil {
 		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan database user", nil)
+		return
+	}
+
+	if err := syncProtocolConfigs(newUsers); err != nil {
+		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan konfigurasi protokol", nil)
 		return
 	}
 
@@ -316,9 +425,11 @@ func renewUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jsonResponse(w, http.StatusOK, true, "User berhasil diperpanjang", map[string]string{
-		"password": req.Password,
-		"expired":  newExpDate,
+	jsonResponse(w, http.StatusOK, true, "User berhasil diperpanjang", map[string]interface{}{
+		"username":  username,
+		"password":  password,
+		"expired":   newExpDate,
+		"protocols": updatedProtocols,
 	})
 }
 
@@ -335,26 +446,31 @@ func listUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type UserInfo struct {
-		Password string `json:"password"`
-		Expired  string `json:"expired"`
-		Status   string `json:"status"`
+		Username  string   `json:"username"`
+		Password  string   `json:"password"`
+		Expired   string   `json:"expired"`
+		Status    string   `json:"status"`
+		Protocols []string `json:"protocols"`
 	}
 
 	userList := []UserInfo{}
 	today := time.Now().Format("2006-01-02")
 
 	for _, u := range users {
+		normalized := normalizeStoredUser(u)
 		status := "Active"
-		if u.Status == "locked" {
+		if normalized.Status == "locked" {
 			status = "Locked"
-		} else if u.Expired < today {
+		} else if normalized.Expired < today {
 			status = "Expired"
 		}
-		
+
 		userList = append(userList, UserInfo{
-			Password: u.Password,
-			Expired:  u.Expired,
-			Status:   status,
+			Username:  normalized.Username,
+			Password:  normalized.Password,
+			Expired:   normalized.Expired,
+			Status:    status,
+			Protocols: normalized.Protocols,
 		})
 	}
 
@@ -397,26 +513,44 @@ func checkExpiration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	today := time.Now().Format("2006-01-02")
-	
-	// Load config to check who is currently active
 	config, err := loadConfig()
 	if err != nil {
 		jsonResponse(w, http.StatusInternalServerError, false, "Gagal membaca config", nil)
 		return
 	}
 
-	activeUsers := make(map[string]bool)
-	for _, p := range config.Auth.Config {
-		activeUsers[p] = true
-	}
-
 	revokedCount := 0
+	updatedUsers := make([]UserStore, 0, len(users))
 	for _, u := range users {
-		if u.Expired < today && activeUsers[u.Password] {
-			log.Printf("User %s expired (Exp: %s). Revoking access.\n", u.Password, u.Expired)
-			revokeAccess(u.Password)
+		normalized := normalizeStoredUser(u)
+		if normalized.Expired < today && normalized.Status == "active" {
+			log.Printf("User %s expired (Exp: %s). Revoking access.\n", normalized.Password, normalized.Expired)
+			if usesProtocol(normalized.Protocols, "udp") {
+				config.Auth.Config = removeFromList(config.Auth.Config, normalized.Password)
+			}
+			normalized.Status = "expired"
 			revokedCount++
 		}
+		updatedUsers = append(updatedUsers, normalized)
+	}
+
+	if err := saveUsers(updatedUsers); err != nil {
+		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan database user", nil)
+		return
+	}
+
+	if err := saveConfig(config); err != nil {
+		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan config", nil)
+		return
+	}
+
+	if err := syncProtocolConfigs(updatedUsers); err != nil {
+		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan konfigurasi protokol", nil)
+		return
+	}
+
+	if revokedCount > 0 {
+		restartService()
 	}
 
 	jsonResponse(w, http.StatusOK, true, fmt.Sprintf("Expiration check complete. Revoked: %d", revokedCount), nil)
@@ -449,8 +583,9 @@ func cleanupExpired(w http.ResponseWriter, r *http.Request) {
 	// Collect expired passwords
 	expiredPasswords := make(map[string]bool)
 	for _, u := range users {
-		if u.Expired < today {
-			expiredPasswords[u.Password] = true
+		normalized := normalizeStoredUser(u)
+		if normalized.Expired < today {
+			expiredPasswords[normalized.Password] = true
 		}
 	}
 
@@ -462,8 +597,9 @@ func cleanupExpired(w http.ResponseWriter, r *http.Request) {
 	// Remove from users.json
 	activeUsers := []UserStore{}
 	for _, u := range users {
-		if !expiredPasswords[u.Password] {
-			activeUsers = append(activeUsers, u)
+		normalized := normalizeStoredUser(u)
+		if !expiredPasswords[normalized.Password] {
+			activeUsers = append(activeUsers, normalized)
 		}
 	}
 
@@ -484,6 +620,11 @@ func cleanupExpired(w http.ResponseWriter, r *http.Request) {
 
 	if err := saveConfig(config); err != nil {
 		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan config.json", nil)
+		return
+	}
+
+	if err := syncProtocolConfigs(activeUsers); err != nil {
+		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan konfigurasi protokol", nil)
 		return
 	}
 
@@ -549,6 +690,122 @@ func enableUser(password string) {
 	}
 }
 
+func normalizeStoredUser(user UserStore) UserStore {
+	if user.Username == "" {
+		user.Username = user.Password
+	}
+	if user.Password == "" {
+		user.Password = user.Username
+	}
+	if len(user.Protocols) == 0 {
+		user.Protocols = append([]string{}, defaultProtocols...)
+	} else {
+		user.Protocols = normalizeProtocols(user.Protocols)
+	}
+	return user
+}
+
+func normalizeProtocols(protocols []string) []string {
+	unique := map[string]bool{}
+	normalized := []string{}
+	for _, p := range protocols {
+		trimmed := strings.ToLower(strings.TrimSpace(p))
+		if trimmed == "" {
+			continue
+		}
+		if !supportedProtocols[trimmed] {
+			continue
+		}
+		if !unique[trimmed] {
+			unique[trimmed] = true
+			normalized = append(normalized, trimmed)
+		}
+	}
+	if len(normalized) == 0 {
+		return append([]string{}, defaultProtocols...)
+	}
+	return normalized
+}
+
+func usesProtocol(protocols []string, target string) bool {
+	for _, p := range protocols {
+		if p == target {
+			return true
+		}
+	}
+	return false
+}
+
+func removeFromList(items []string, target string) []string {
+	filtered := make([]string, 0, len(items))
+	for _, item := range items {
+		if item != target {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func syncProtocolConfigs(users []UserStore) error {
+	if err := os.MkdirAll(ProtocolDir, 0755); err != nil {
+		return err
+	}
+
+	type ProtocolUser struct {
+		Username string            `json:"username"`
+		Password string            `json:"password"`
+		Expired  string            `json:"expired"`
+		Status   string            `json:"status"`
+		Options  map[string]string `json:"options,omitempty"`
+	}
+
+	type ProtocolConfig struct {
+		Protocol  string         `json:"protocol"`
+		UpdatedAt string         `json:"updated_at"`
+		Users     []ProtocolUser `json:"users"`
+	}
+
+	usersByProtocol := map[string][]ProtocolUser{}
+	today := time.Now().Format("2006-01-02")
+
+	for _, u := range users {
+		normalized := normalizeStoredUser(u)
+		if normalized.Status == "locked" || normalized.Expired < today {
+			continue
+		}
+		for _, protocol := range normalized.Protocols {
+			options := map[string]string{}
+			if normalized.ProtocolOptions != nil {
+				if opt, ok := normalized.ProtocolOptions[protocol]; ok {
+					options = opt
+				}
+			}
+			usersByProtocol[protocol] = append(usersByProtocol[protocol], ProtocolUser{
+				Username: normalized.Username,
+				Password: normalized.Password,
+				Expired:  normalized.Expired,
+				Status:   normalized.Status,
+				Options:  options,
+			})
+		}
+	}
+
+	for protocol := range supportedProtocols {
+		config := ProtocolConfig{
+			Protocol:  protocol,
+			UpdatedAt: time.Now().Format(time.RFC3339),
+			Users:     usersByProtocol[protocol],
+		}
+		data, err := json.MarshalIndent(config, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := ioutil.WriteFile(fmt.Sprintf("%s/%s.json", ProtocolDir, protocol), data, 0644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func loadConfig() (Config, error) {
 	var config Config
