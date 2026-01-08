@@ -121,7 +121,12 @@ API berjalan di port `8080`. Gunakan **API Key** pada header `X-API-Key`.
 *   **Endpoint**: `/api/info`
 *   **Method**: `GET`
 
-### 6. Cron Trigger (Expire Check)
+### 6. Online Accounts (Monitoring)
+*   **Endpoint**: `/api/online`
+*   **Method**: `GET`
+*   **Desc**: Menampilkan akun aktif beserta IP dan `last_seen` (berdasarkan log server ZiVPN dan/atau conntrack).
+
+### 7. Cron Trigger (Expire Check)
 *   **Endpoint**: `/api/cron/expire`
 *   **Method**: `POST`
 *   **Desc**: Trigger manual pengecekan expired (biasanya jalan otomatis jam 00:00 WIB).
