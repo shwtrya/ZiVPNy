@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -611,19 +612,40 @@ func getSystemInfo(w http.ResponseWriter, r *http.Request) {
 		privateIP = fields[0]
 	}
 
-	info := map[string]string{
-		"domain":        domain,
-		"public_ip":     strings.TrimSpace(string(ipPub)),
-		"private_ip":    privateIP,
-		"port":          "5667",
-		"service":       "zivpn",
-		"cpu":           getCPUInfo(),
-		"ram":           getRAMInfo(),
-		"disk":          getDiskUsage(),
-		"uptime":        getUptimeInfo(),
-		"load_avg":      getLoadAverage(),
-		"kernel":        getKernelVersion(),
-		"zivpn_version": getZiVPNVersion(),
+	publicIP := strings.TrimSpace(string(ipPub))
+	domainResolves := false
+	domainIPs := []string{}
+	if domain != "" && domain != "Tidak diatur" {
+		if ips, err := net.LookupIP(domain); err == nil {
+			seen := map[string]bool{}
+			for _, ip := range ips {
+				ipStr := ip.String()
+				if !seen[ipStr] {
+					seen[ipStr] = true
+					domainIPs = append(domainIPs, ipStr)
+				}
+				if ipStr == publicIP {
+					domainResolves = true
+				}
+			}
+		}
+	}
+
+	info := map[string]interface{}{
+		"domain":          domain,
+		"public_ip":       publicIP,
+		"private_ip":      privateIP,
+		"domain_resolves": domainResolves,
+		"domain_ips":      domainIPs,
+		"port":            "5667",
+		"service":         "zivpn",
+		"cpu":             getCPUInfo(),
+		"ram":             getRAMInfo(),
+		"disk":            getDiskUsage(),
+		"uptime":          getUptimeInfo(),
+		"load_avg":        getLoadAverage(),
+		"kernel":          getKernelVersion(),
+		"zivpn_version":   getZiVPNVersion(),
 	}
 
 	jsonResponse(w, http.StatusOK, true, "System Info", info)

@@ -807,9 +807,14 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 		data := res["data"].(map[string]interface{})
 		ipInfo, _ := getIpInfo()
 		domain := getInfoValue(data, "domain", config.Domain)
+		domainStatus := "Domain mismatch"
+		if getInfoBool(data, "domain_resolves") {
+			domainStatus = "Domain OK"
+		}
 
-		msg := fmt.Sprintf("```\n🖥️ INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n🌐 JARINGAN\n• Domain    : %s\n• IP Public : %s\n• IP Private: %s\n• Port      : %s\n⚙️ SISTEM\n• Service   : %s\n• CPU       : %s\n• RAM       : %s\n• Disk      : %s\n• Uptime    : %s\n• Load Avg  : %s\n• Kernel    : %s\n• Version   : %s\n📍 LOKASI\n• City      : %s\n• ISP       : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
+		msg := fmt.Sprintf("```\n🖥️ INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n🌐 JARINGAN\n• Domain        : %s\n• Domain Status : %s\n• IP Public     : %s\n• IP Private    : %s\n• Port          : %s\n⚙️ SISTEM\n• Service   : %s\n• CPU       : %s\n• RAM       : %s\n• Disk      : %s\n• Uptime    : %s\n• Load Avg  : %s\n• Kernel    : %s\n• Version   : %s\n📍 LOKASI\n• City      : %s\n• ISP       : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
 			domain,
+			domainStatus,
 			getInfoValue(data, "public_ip", "-"),
 			getInfoValue(data, "private_ip", "-"),
 			getInfoValue(data, "port", "-"),
@@ -842,6 +847,15 @@ func getInfoValue(data map[string]interface{}, key, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+func getInfoBool(data map[string]interface{}, key string) bool {
+	if value, ok := data[key]; ok && value != nil {
+		if boolean, ok := value.(bool); ok {
+			return boolean
+		}
+	}
+	return false
 }
 
 func listOnlineUsers(bot *tgbotapi.BotAPI, chatID int64) {
