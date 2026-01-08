@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -533,15 +534,185 @@ func getSystemInfo(w http.ResponseWriter, r *http.Request) {
 		domain = strings.TrimSpace(string(domainBytes))
 	}
 
+	privateIP := ""
+	if fields := strings.Fields(string(ipPriv)); len(fields) > 0 {
+		privateIP = fields[0]
+	}
+
 	info := map[string]string{
-		"domain":     domain,
-		"public_ip":  strings.TrimSpace(string(ipPub)),
-		"private_ip": strings.Fields(string(ipPriv))[0],
-		"port":       "5667",
-		"service":    "zivpn",
+		"domain":        domain,
+		"public_ip":     strings.TrimSpace(string(ipPub)),
+		"private_ip":    privateIP,
+		"port":          "5667",
+		"service":       "zivpn",
+		"cpu":           getCPUInfo(),
+		"ram":           getRAMInfo(),
+		"disk":          getDiskUsage(),
+		"uptime":        getUptimeInfo(),
+		"load_avg":      getLoadAverage(),
+		"kernel":        getKernelVersion(),
+		"zivpn_version": getZiVPNVersion(),
 	}
 
 	jsonResponse(w, http.StatusOK, true, "System Info", info)
+}
+
+func getCPUInfo() string {
+	data, err := os.ReadFile("/proc/cpuinfo")
+	if err != nil {
+		return "Unknown"
+	}
+
+	model := ""
+	cores := 0
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "model name") && model == "" {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				model = strings.TrimSpace(parts[1])
+			}
+		}
+		if strings.HasPrefix(line, "processor") {
+			cores++
+		}
+	}
+
+	if model == "" {
+		model = "Unknown"
+	}
+	if cores == 0 {
+		return model
+	}
+	coreLabel := "cores"
+	if cores == 1 {
+		coreLabel = "core"
+	}
+	return fmt.Sprintf("%s (%d %s)", model, cores, coreLabel)
+}
+
+func getRAMInfo() string {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return "Unknown"
+	}
+
+	var totalKB, availableKB int64
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "MemTotal:") {
+			fmt.Sscanf(line, "MemTotal: %d kB", &totalKB)
+		}
+		if strings.HasPrefix(line, "MemAvailable:") {
+			fmt.Sscanf(line, "MemAvailable: %d kB", &availableKB)
+		}
+	}
+
+	if totalKB == 0 {
+		return "Unknown"
+	}
+	usedKB := totalKB - availableKB
+	if usedKB < 0 {
+		usedKB = 0
+	}
+	return fmt.Sprintf("%s / %s", formatKB(usedKB), formatKB(totalKB))
+}
+
+func getDiskUsage() string {
+	cmd := exec.Command("df", "-h", "/")
+	output, err := cmd.Output()
+	if err != nil {
+		return "Unknown"
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) < 2 {
+		return "Unknown"
+	}
+	fields := strings.Fields(lines[1])
+	if len(fields) < 5 {
+		return "Unknown"
+	}
+	size := fields[1]
+	used := fields[2]
+	percent := fields[4]
+	return fmt.Sprintf("%s/%s (%s)", used, size, percent)
+}
+
+func getUptimeInfo() string {
+	data, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		return "Unknown"
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 {
+		return "Unknown"
+	}
+	seconds, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return "Unknown"
+	}
+	return formatUptime(seconds)
+}
+
+func getLoadAverage() string {
+	data, err := os.ReadFile("/proc/loadavg")
+	if err != nil {
+		return "Unknown"
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) < 3 {
+		return "Unknown"
+	}
+	return strings.Join(fields[:3], " ")
+}
+
+func getKernelVersion() string {
+	cmd := exec.Command("uname", "-r")
+	output, err := cmd.Output()
+	if err != nil {
+		return "Unknown"
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func getZiVPNVersion() string {
+	paths := []string{"/etc/zivpn/version", "/etc/zivpn/VERSION"}
+	for _, path := range paths {
+		if data, err := os.ReadFile(path); err == nil {
+			version := strings.TrimSpace(string(data))
+			if version != "" {
+				return version
+			}
+		}
+	}
+	return "Unknown"
+}
+
+func formatKB(valueKB int64) string {
+	if valueKB >= 1024*1024 {
+		return fmt.Sprintf("%.2f GB", float64(valueKB)/(1024*1024))
+	}
+	return fmt.Sprintf("%.0f MB", float64(valueKB)/1024)
+}
+
+func formatUptime(seconds float64) string {
+	duration := time.Duration(seconds) * time.Second
+	days := int(duration.Hours()) / 24
+	hours := int(duration.Hours()) % 24
+	minutes := int(duration.Minutes()) % 60
+
+	parts := []string{}
+	if days > 0 {
+		parts = append(parts, fmt.Sprintf("%dd", days))
+	}
+	if hours > 0 || days > 0 {
+		parts = append(parts, fmt.Sprintf("%dh", hours))
+	}
+	parts = append(parts, fmt.Sprintf("%dm", minutes))
+	return strings.Join(parts, " ")
 }
 
 func checkExpiration(w http.ResponseWriter, r *http.Request) {

@@ -606,9 +606,24 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 	if res["success"] == true {
 		data := res["data"].(map[string]interface{})
 		ipInfo, _ := getIpInfo()
+		domain := getInfoValue(data, "domain", config.Domain)
 
-		msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n    INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nDomain         : %s\nIP Public      : %s\nPort           : %s\nService        : %s\nCITY           : %s\nISP            : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
-			config.Domain, data["public_ip"], data["port"], data["service"], ipInfo.City, ipInfo.Isp)
+		msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n    INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nDomain         : %s\nIP Public      : %s\nIP Private     : %s\nPort           : %s\nService        : %s\nCPU            : %s\nRAM            : %s\nDisk           : %s\nUptime         : %s\nLoad Avg       : %s\nKernel         : %s\nZiVPN Version  : %s\nCITY           : %s\nISP            : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
+			domain,
+			getInfoValue(data, "public_ip", "-"),
+			getInfoValue(data, "private_ip", "-"),
+			getInfoValue(data, "port", "-"),
+			getInfoValue(data, "service", "-"),
+			getInfoValue(data, "cpu", "-"),
+			getInfoValue(data, "ram", "-"),
+			getInfoValue(data, "disk", "-"),
+			getInfoValue(data, "uptime", "-"),
+			getInfoValue(data, "load_avg", "-"),
+			getInfoValue(data, "kernel", "-"),
+			getInfoValue(data, "zivpn_version", "-"),
+			ipInfo.City,
+			ipInfo.Isp,
+		)
 
 		reply := tgbotapi.NewMessage(chatID, msg)
 		reply.ParseMode = "Markdown"
@@ -618,6 +633,15 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 	} else {
 		replyError(bot, chatID, "Gagal mengambil info.")
 	}
+}
+
+func getInfoValue(data map[string]interface{}, key, fallback string) string {
+	if value, ok := data[key]; ok && value != nil {
+		if str, ok := value.(string); ok && str != "" {
+			return str
+		}
+	}
+	return fallback
 }
 
 func listOnlineUsers(bot *tgbotapi.BotAPI, chatID int64) {
