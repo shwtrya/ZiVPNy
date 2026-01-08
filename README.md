@@ -14,6 +14,7 @@
 *   **Robust User Management**:
     *   **Auto-Revoke**: User expired otomatis disconnect setiap jam 00:00 WIB (via Cron).
     *   **Clean Deletion**: Hapus user bersih total dari config dan database.
+    *   **Bot Notification**: Admin menerima notifikasi saat expire check/cleanup sukses.
 *   **Dynamic Security**: API Key dan sertifikat SSL digenerate otomatis.
 *   **High Performance**: Core UDP ZiVPN yang dioptimalkan.
 
@@ -74,6 +75,17 @@ Saat script berjalan, Anda akan diminta memasukkan:
 
 ---
 
+## ⏱️ Jadwal Cron
+
+Cron job otomatis dijalankan di server untuk maintenance akun:
+
+*   **Expire Check**: Setiap hari **00:00 WIB** → `/api/cron/expire`
+*   **Cleanup Expired**: Setiap hari **00:10 WIB** → `/api/cron/cleanup`
+
+Log cron tersimpan di `/var/log/zivpn-cron.log`.
+
+---
+
 ## 📱 ZiVPN Manager App
 
 Kelola server dan user Anda dengan mudah menggunakan aplikasi Android resmi **ZiVPN Manager**.
@@ -130,6 +142,11 @@ API berjalan di port `8080`. Gunakan **API Key** pada header `X-API-Key`.
 *   **Endpoint**: `/api/cron/expire`
 *   **Method**: `POST`
 *   **Desc**: Trigger manual pengecekan expired (biasanya jalan otomatis jam 00:00 WIB).
+
+### 8. Cron Trigger (Cleanup Expired)
+*   **Endpoint**: `/api/cron/cleanup`
+*   **Method**: `POST`
+*   **Desc**: Hapus akun expired dari config dan database (biasanya jalan otomatis jam 00:10 WIB).
 
 ---
 

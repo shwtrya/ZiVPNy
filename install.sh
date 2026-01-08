@@ -354,8 +354,21 @@ echo -ne "${BOLD}Telegram Bot Configuration${RESET}\n"
 echo -ne "${GRAY}(Leave empty to skip)${RESET}\n"
 read -p "Bot Token: " bot_token
 read -p "Admin ID : " admin_id
+read -p "Admin IDs tambahan (pisahkan koma, optional): " extra_admin_ids
 
 if [[ -n "$bot_token" ]] && [[ -n "$admin_id" ]]; then
+  admin_ids_json="[$admin_id"
+  if [[ -n "$extra_admin_ids" ]]; then
+    extra_admin_ids=$(echo "$extra_admin_ids" | tr ',' ' ')
+    for id in $extra_admin_ids; do
+      id=$(echo "$id" | xargs)
+      if [[ -n "$id" ]]; then
+        admin_ids_json="$admin_ids_json, $id"
+      fi
+    done
+  fi
+  admin_ids_json="$admin_ids_json]"
+
   echo ""
   echo "Select Bot Type:"
   echo "1) Free (Admin Only / Public Mode)"
@@ -368,13 +381,13 @@ if [[ -n "$bot_token" ]] && [[ -n "$admin_id" ]]; then
     read -p "Pakasir API Key     : " pakasir_key
     read -p "Daily Price (IDR)   : " daily_price
     
-    echo "{\"bot_token\": \"$bot_token\", \"admin_id\": $admin_id, \"mode\": \"public\", \"domain\": \"$domain\", \"pakasir_slug\": \"$pakasir_slug\", \"pakasir_api_key\": \"$pakasir_key\", \"daily_price\": $daily_price}" > /etc/zivpn/bot-config.json
+    echo "{\"bot_token\": \"$bot_token\", \"admin_id\": $admin_id, \"admin_ids\": $admin_ids_json, \"mode\": \"public\", \"domain\": \"$domain\", \"pakasir_slug\": \"$pakasir_slug\", \"pakasir_api_key\": \"$pakasir_key\", \"daily_price\": $daily_price}" > /etc/zivpn/bot-config.json
     bot_file="zivpn-paid-bot.go"
   else
     read -p "Bot Mode (public/private) [default: private]: " bot_mode
     bot_mode=${bot_mode:-private}
     
-    echo "{\"bot_token\": \"$bot_token\", \"admin_id\": $admin_id, \"mode\": \"$bot_mode\", \"domain\": \"$domain\"}" > /etc/zivpn/bot-config.json
+    echo "{\"bot_token\": \"$bot_token\", \"admin_id\": $admin_id, \"admin_ids\": $admin_ids_json, \"mode\": \"$bot_mode\", \"domain\": \"$domain\"}" > /etc/zivpn/bot-config.json
     bot_file="zivpn-bot.go"
   fi
   
@@ -418,6 +431,9 @@ run_silent "Starting Services" "systemctl enable zivpn.service && systemctl star
 echo -e "${YELLOW}Setting up Cron Job for Auto-Expire...${NC}"
 cron_cmd="0 0 * * * /usr/bin/curl -s -X POST -H \"X-API-Key: \$(cat /etc/zivpn/apikey)\" http://127.0.0.1:\$(cat /etc/zivpn/api_port)/api/cron/expire >> /var/log/zivpn-cron.log 2>&1"
 (crontab -l 2>/dev/null | grep -v "/api/cron/expire"; echo "$cron_cmd") | crontab -
+echo -e "${YELLOW}Setting up Cron Job for Cleanup...${NC}"
+cleanup_cmd="10 0 * * * /usr/bin/curl -s -X POST -H \"X-API-Key: \$(cat /etc/zivpn/apikey)\" http://127.0.0.1:\$(cat /etc/zivpn/api_port)/api/cron/cleanup >> /var/log/zivpn-cron.log 2>&1"
+(crontab -l 2>/dev/null | grep -v "/api/cron/cleanup"; echo "$cleanup_cmd") | crontab -
 print_done "Cron Job Configured"
 
 iface=$(ip -4 route ls | grep default | grep -Po '(?<=dev )(\S+)' | head -1)
