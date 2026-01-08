@@ -93,6 +93,43 @@ run_silent "Configuring" "wget -q https://raw.githubusercontent.com/AutoFTbot/Zi
 
 run_silent "Generating SSL" "openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 -subj '/C=ID/ST=Jawa Barat/L=Bandung/O=AutoFTbot/OU=IT Department/CN=$domain' -keyout /etc/zivpn/zivpn.key -out /etc/zivpn/zivpn.crt"
 
+mkdir -p /etc/zivpn/protocols
+cat <<'EOF' > /etc/zivpn/provision-protocol.sh
+#!/bin/bash
+set -euo pipefail
+
+protocol="${1:-}"
+base="/etc/zivpn/protocols"
+timestamp="$(date -Is)"
+
+case "$protocol" in
+  udp|ssh|dropbear|ws|ssl)
+    ;;
+  *)
+    echo "Unsupported protocol: $protocol" >&2
+    exit 1
+    ;;
+esac
+
+mkdir -p "$base"
+config_file="$base/${protocol}.json"
+
+if [ ! -f "$config_file" ]; then
+  cat <<JSON > "$config_file"
+{
+  "protocol": "$protocol",
+  "updated_at": "$timestamp",
+  "users": []
+}
+JSON
+fi
+EOF
+chmod +x /etc/zivpn/provision-protocol.sh
+
+for proto in udp ssh dropbear ws ssl; do
+  /etc/zivpn/provision-protocol.sh "$proto"
+done
+
 # Find a free API port
 print_task "Finding available API Port"
 API_PORT=8080

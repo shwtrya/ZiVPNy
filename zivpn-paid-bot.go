@@ -30,7 +30,7 @@ const (
 	ApiPortFile   = "/etc/zivpn/api_port"
 	ApiKeyFile    = "/etc/zivpn/apikey"
 	DomainFile    = "/etc/zivpn/domain"
-	PortFile	  = "/etc/zivpn/port"
+	PortFile      = "/etc/zivpn/port"
 )
 
 var ApiUrl = "http://127.0.0.1:" + PortFile + "/api"
@@ -39,12 +39,12 @@ var ApiKey = "AutoFtBot-agskjgdvsbdreiWG1234512SDKrqw"
 
 type BotConfig struct {
 	BotToken      string `json:"bot_token"`
-	AdminID        int64  `json:"admin_id"`
-	Mode           string `json:"mode"`
-	Domain         string `json:"domain"`
-	PakasirSlug    string `json:"pakasir_slug"`
-	PakasirApiKey  string `json:"pakasir_api_key"`
-	DailyPrice     int    `json:"daily_price"`
+	AdminID       int64  `json:"admin_id"`
+	Mode          string `json:"mode"`
+	Domain        string `json:"domain"`
+	PakasirSlug   string `json:"pakasir_slug"`
+	PakasirApiKey string `json:"pakasir_api_key"`
+	DailyPrice    int    `json:"daily_price"`
 }
 
 type IpInfo struct {
@@ -53,9 +53,11 @@ type IpInfo struct {
 }
 
 type UserData struct {
-	Password string `json:"password"`
-	Expired  string `json:"expired"`
-	Status   string `json:"status"`
+	Username  string   `json:"username"`
+	Password  string   `json:"password"`
+	Expired   string   `json:"expired"`
+	Status    string   `json:"status"`
+	Protocols []string `json:"protocols"`
 }
 
 // ==========================================
@@ -185,6 +187,17 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 		mutex.Lock()
 		tempUserData[userID]["password"] = text
 		mutex.Unlock()
+		userStates[userID] = "create_protocols"
+		sendMessage(bot, chatID, "🧩 Masukkan protokol (pisahkan koma): udp, ssh, dropbear, ws, ssl")
+
+	case "create_protocols":
+		protocols, ok := parseProtocolsInput(bot, chatID, text)
+		if !ok {
+			return
+		}
+		mutex.Lock()
+		tempUserData[userID]["protocols"] = strings.Join(protocols, ",")
+		mutex.Unlock()
 		userStates[userID] = "create_days"
 		sendMessage(bot, chatID, fmt.Sprintf("⏳ Masukkan Durasi (hari)\nHarga: Rp %d / hari:", config.DailyPrice))
 
@@ -272,14 +285,14 @@ func startPaymentChecker(bot *tgbotapi.BotAPI, config *BotConfig) {
 			if orderID, ok := data["order_id"]; ok {
 				price := data["price"]
 				chatID, _ := strconv.ParseInt(data["chat_id"], 10, 64)
-				
+
 				status, err := checkPakasirStatus(config, orderID, price)
 				if err == nil && (status == "completed" || status == "success") {
 					// Payment Success
 					password := data["password"]
 					days, _ := strconv.Atoi(data["days"])
-					
-					createUser(bot, chatID, password, days, config)
+
+					createUser(bot, chatID, password, days, data["protocols"], config)
 					delete(tempUserData, userID)
 					delete(userStates, userID)
 				} else if err != nil {
@@ -291,11 +304,16 @@ func startPaymentChecker(bot *tgbotapi.BotAPI, config *BotConfig) {
 	}
 }
 
-func createUser(bot *tgbotapi.BotAPI, chatID int64, password string, days int, config *BotConfig) {
-	res, err := apiCall("POST", "/user/create", map[string]interface{}{
+func createUser(bot *tgbotapi.BotAPI, chatID int64, password string, days int, protocols string, config *BotConfig) {
+	payload := map[string]interface{}{
 		"password": password,
 		"days":     days,
-	})
+	}
+	if protocols != "" {
+		payload["protocols"] = strings.Split(protocols, ",")
+	}
+
+	res, err := apiCall("POST", "/user/create", payload)
 
 	if err != nil {
 		replyError(bot, chatID, "Error API: "+err.Error())
@@ -385,7 +403,7 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 
 	msg := tgbotapi.NewMessage(chatID, msgText)
 	msg.ParseMode = "Markdown"
-	
+
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🛒 Beli Akun Premium", "menu_create"),
@@ -413,8 +431,9 @@ func sendAccountInfo(bot *tgbotapi.BotAPI, chatID int64, data map[string]interfa
 		domain = "(Not Configured)"
 	}
 
-	msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n  PREMIUM ACCOUNT\n━━━━━━━━━━━━━━━━━━━━━\nPassword   : %s\nCITY       : %s\nISP        : %s\nDomain     : %s\nExpired On : %s\n━━━━━━━━━━━━━━━━━━━━━\n```\nTerima kasih telah berlangganan!",
-		data["password"], ipInfo.City, ipInfo.Isp, domain, data["expired"],
+	protocolInfo := formatProtocols(data)
+	msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n  PREMIUM ACCOUNT\n━━━━━━━━━━━━━━━━━━━━━\nPassword   : %s\nCITY       : %s\nISP        : %s\nDomain     : %s\nProtocols  : %s\nExpired On : %s\n━━━━━━━━━━━━━━━━━━━━━\n```\nTerima kasih telah berlangganan!",
+		data["password"], ipInfo.City, ipInfo.Isp, domain, protocolInfo, data["expired"],
 	)
 
 	reply := tgbotapi.NewMessage(chatID, msg)
@@ -484,6 +503,68 @@ func validateNumber(bot *tgbotapi.BotAPI, chatID int64, text string, min, max in
 		return 0, false
 	}
 	return val, true
+}
+
+func parseProtocolsInput(bot *tgbotapi.BotAPI, chatID int64, text string) ([]string, bool) {
+	supported := map[string]bool{
+		"udp":      true,
+		"ssh":      true,
+		"dropbear": true,
+		"ws":       true,
+		"ssl":      true,
+	}
+	input := strings.TrimSpace(strings.ToLower(text))
+	if input == "" {
+		sendMessage(bot, chatID, "❌ Protokol wajib diisi. Contoh: udp, ssh, ws")
+		return nil, false
+	}
+	if input == "all" {
+		return []string{"udp", "ssh", "dropbear", "ws", "ssl"}, true
+	}
+	parts := strings.Split(input, ",")
+	seen := map[string]bool{}
+	var protocols []string
+	for _, part := range parts {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		if !supported[p] {
+			sendMessage(bot, chatID, fmt.Sprintf("❌ Protokol tidak dikenal: %s", p))
+			return nil, false
+		}
+		if !seen[p] {
+			seen[p] = true
+			protocols = append(protocols, p)
+		}
+	}
+	if len(protocols) == 0 {
+		sendMessage(bot, chatID, "❌ Protokol wajib diisi. Contoh: udp, ssh, ws")
+		return nil, false
+	}
+	return protocols, true
+}
+
+func formatProtocols(data map[string]interface{}) string {
+	if value, ok := data["protocols"]; ok && value != nil {
+		switch v := value.(type) {
+		case string:
+			if v != "" {
+				return v
+			}
+		case []interface{}:
+			parts := []string{}
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					parts = append(parts, s)
+				}
+			}
+			if len(parts) > 0 {
+				return strings.Join(parts, ",")
+			}
+		}
+	}
+	return "udp"
 }
 
 func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
@@ -562,7 +643,7 @@ func performBackup(bot *tgbotapi.BotAPI, chatID int64) {
 	zipWriter.Close()
 
 	fileName := fmt.Sprintf("zivpn-backup-%s.zip", time.Now().Format("20060102-150405"))
-	
+
 	// Create a temporary file for the upload
 	tmpFile := "/tmp/" + fileName
 	if err := ioutil.WriteFile(tmpFile, buf.Bytes(), 0644); err != nil {
@@ -573,7 +654,7 @@ func performBackup(bot *tgbotapi.BotAPI, chatID int64) {
 
 	doc := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(tmpFile))
 	doc.Caption = "✅ Backup Data ZiVPN"
-	
+
 	deleteLastMessage(bot, chatID)
 	bot.Send(doc)
 }
@@ -586,7 +667,7 @@ func startRestore(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
 func processRestoreFile(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *BotConfig) {
 	chatID := msg.Chat.ID
 	userID := msg.From.ID
-	
+
 	resetState(userID)
 	sendMessage(bot, chatID, "⏳ Sedang memproses file...")
 
@@ -622,13 +703,13 @@ func processRestoreFile(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *Bot
 	for _, f := range zipReader.File {
 		// Security check: only allow specific files
 		validFiles := map[string]bool{
-			"config.json": true,
-			"users.json": true,
+			"config.json":     true,
+			"users.json":      true,
 			"bot-config.json": true,
-			"domain": true,
-			"apikey": true,
+			"domain":          true,
+			"apikey":          true,
 		}
-		
+
 		if !validFiles[f.Name] {
 			continue
 		}
@@ -652,7 +733,7 @@ func processRestoreFile(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *Bot
 	// Restart Services
 	exec.Command("systemctl", "restart", "zivpn").Run()
 	exec.Command("systemctl", "restart", "zivpn-api").Run()
-	
+
 	msgSuccess := tgbotapi.NewMessage(chatID, "✅ Restore Berhasil!\nService ZiVPN, API, dan Bot telah direstart.")
 	bot.Send(msgSuccess)
 
