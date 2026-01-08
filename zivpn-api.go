@@ -33,6 +33,7 @@ const (
 	PackagesFile = "/etc/zivpn/packages.json"
 	LogFile      = "/var/log/zivpn.log"
 	BotNotifyURL = "http://127.0.0.1:9871/notify"
+	MaxAccounts  = 20
 )
 
 var AuthToken = "AutoFtBot-agskjgdvsbdreiWG1234512SDKrqw"
@@ -248,6 +249,10 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 	users, err := loadUsers()
 	if err != nil {
 		jsonResponse(w, http.StatusInternalServerError, false, "Gagal membaca database user", nil)
+		return
+	}
+	if len(users) >= MaxAccounts {
+		jsonResponse(w, http.StatusConflict, false, "Stok akun habis", nil)
 		return
 	}
 
@@ -634,6 +639,11 @@ func getSystemInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	usedAccounts := 0
+	if users, err := loadUsers(); err == nil {
+		usedAccounts = len(users)
+	}
+
 	info := map[string]interface{}{
 		"domain":          domain,
 		"public_ip":       publicIP,
@@ -649,6 +659,15 @@ func getSystemInfo(w http.ResponseWriter, r *http.Request) {
 		"load_avg":        getLoadAverage(),
 		"kernel":          getKernelVersion(),
 		"zivpn_version":   getZiVPNVersion(),
+		"max_accounts":    MaxAccounts,
+		"used_accounts":   usedAccounts,
+		"available_accounts": func() int {
+			available := MaxAccounts - usedAccounts
+			if available < 0 {
+				return 0
+			}
+			return available
+		}(),
 	}
 
 	jsonResponse(w, http.StatusOK, true, "System Info", info)

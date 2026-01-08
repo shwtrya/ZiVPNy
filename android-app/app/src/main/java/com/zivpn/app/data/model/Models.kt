@@ -47,7 +47,10 @@ data class ServerInfo(
     @SerializedName("public_ip") val publicIp: String,
     @SerializedName("private_ip") val privateIp: String,
     val port: String,
-    val service: String
+    val service: String,
+    @SerializedName("max_accounts") val maxAccounts: Int = 0,
+    @SerializedName("used_accounts") val usedAccounts: Int = 0,
+    @SerializedName("available_accounts") val availableAccounts: Int = 0
 )
 
 // Cleanup response

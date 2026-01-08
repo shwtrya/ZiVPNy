@@ -33,6 +33,14 @@
                 android:layout_height="wrap_content"
                 android:textSize="14sp" />
 
+            <TextView
+                android:id="@+id/tv_server_stock"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Stok: -"
+                android:textSize="13sp" />
+
         </LinearLayout>
 
     </com.google.android.material.card.MaterialCardView>

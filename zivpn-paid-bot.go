@@ -37,6 +37,7 @@ const (
 	PortFile      = "/etc/zivpn/port"
 	PackagesFile  = "/etc/zivpn/packages.json"
 	BotNotifyAddr = "127.0.0.1:9871"
+	MaxAccounts   = 20
 )
 
 var ApiUrl = "http://127.0.0.1:" + PortFile + "/api"
@@ -439,6 +440,11 @@ func startPaymentChecker(bot *tgbotapi.BotAPI, config *BotConfig) {
 }
 
 func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, password string, days int, ipLimit int, protocols []string, config *BotConfig) {
+	if userCount, err := getUserCount(); err == nil && userCount >= MaxAccounts {
+		replyError(bot, chatID, "Stok akun habis")
+		return
+	}
+
 	payload := map[string]interface{}{
 		"username":  username,
 		"password":  password,
@@ -533,7 +539,12 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 		domain = "(Not Configured)"
 	}
 
-	msgText := fmt.Sprintf("```\n✨ ZiVPN UDP Store v1.0\n━━━━━━━━━━━━━━━━━━━━━\n📊 STATUS RINGKAS\n• Status : ✅ Aktif\n• Domain : %s\n• City   : %s\n• ISP    : %s\n• Harga  : Rp %d / Hari\n━━━━━━━━━━━━━━━━━━━━━\n```\n👇 Silakan pilih menu di bawah ini:", domain, ipInfo.City, ipInfo.Isp, config.DailyPrice)
+	stockLine := "• Stok   : -"
+	if stockInfo, err := getStockInfo(); err == nil {
+		stockLine = fmt.Sprintf("• Stok   : %d/%d (Sisa %d)", stockInfo.Used, stockInfo.Max, stockInfo.Available)
+	}
+
+	msgText := fmt.Sprintf("```\n✨ ZiVPN UDP Store v1.0\n━━━━━━━━━━━━━━━━━━━━━\n📊 STATUS RINGKAS\n• Status : ✅ Aktif\n• Domain : %s\n• City   : %s\n• ISP    : %s\n• Harga  : Rp %d / Hari\n%s\n━━━━━━━━━━━━━━━━━━━━━\n```\n👇 Silakan pilih menu di bawah ini:", domain, ipInfo.City, ipInfo.Isp, config.DailyPrice, stockLine)
 
 	msg := tgbotapi.NewMessage(chatID, msgText)
 	msg.ParseMode = "Markdown"
@@ -579,8 +590,12 @@ func sendAccountInfo(bot *tgbotapi.BotAPI, chatID int64, data map[string]interfa
 	if value, ok := data["ip_limit"]; ok && value != nil {
 		ipLimit = fmt.Sprintf("%v", value)
 	}
-	msg := fmt.Sprintf("```\n✅ PREMIUM ACCOUNT\n━━━━━━━━━━━━━━━━━━━━━\n🔐 AKUN\n• Password : %s\n• Expired  : %s\n• IP Limit : %s\n🧩 PROTOKOL\n• Protocols: %s\n🌐 SERVER\n• Domain   : %s\n• City     : %s\n• ISP      : %s\n━━━━━━━━━━━━━━━━━━━━━\n```\nTerima kasih telah berlangganan!",
-		data["password"], data["expired"], ipLimit, protocolInfo, domain, ipInfo.City, ipInfo.Isp,
+	stockLine := "• Stok    : -"
+	if stockInfo, err := getStockInfo(); err == nil {
+		stockLine = fmt.Sprintf("• Stok    : %d/%d (Sisa %d)", stockInfo.Used, stockInfo.Max, stockInfo.Available)
+	}
+	msg := fmt.Sprintf("```\n✅ PREMIUM ACCOUNT\n━━━━━━━━━━━━━━━━━━━━━\n🔐 AKUN\n• Password : %s\n• Expired  : %s\n• IP Limit : %s\n🧩 PROTOKOL\n• Protocols: %s\n🌐 SERVER\n• Domain   : %s\n• City     : %s\n• ISP      : %s\n📦 STOK\n%s\n━━━━━━━━━━━━━━━━━━━━━\n```\nTerima kasih telah berlangganan!",
+		data["password"], data["expired"], ipLimit, protocolInfo, domain, ipInfo.City, ipInfo.Isp, stockLine,
 	)
 
 	reply := tgbotapi.NewMessage(chatID, msg)
@@ -831,6 +846,24 @@ func getInfoValue(data map[string]interface{}, key, fallback string) string {
 	return fallback
 }
 
+func getInfoInt(data map[string]interface{}, key string, fallback int) int {
+	if value, ok := data[key]; ok && value != nil {
+		switch v := value.(type) {
+		case float64:
+			return int(v)
+		case int:
+			return v
+		case int64:
+			return int(v)
+		case string:
+			if parsed, err := strconv.Atoi(v); err == nil {
+				return parsed
+			}
+		}
+	}
+	return fallback
+}
+
 func getInfoBool(data map[string]interface{}, key string) bool {
 	if value, ok := data[key]; ok && value != nil {
 		if boolean, ok := value.(bool); ok {
@@ -838,6 +871,59 @@ func getInfoBool(data map[string]interface{}, key string) bool {
 		}
 	}
 	return false
+}
+
+type StockInfo struct {
+	Max       int
+	Used      int
+	Available int
+}
+
+func getStockInfo() (*StockInfo, error) {
+	res, err := apiCall("GET", "/info", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if res["success"] != true {
+		return nil, fmt.Errorf("Gagal mengambil info stok")
+	}
+
+	data, ok := res["data"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("Data stok tidak valid")
+	}
+
+	maxAccounts := getInfoInt(data, "max_accounts", MaxAccounts)
+	usedAccounts := getInfoInt(data, "used_accounts", 0)
+	availableAccounts := getInfoInt(data, "available_accounts", maxAccounts-usedAccounts)
+	if availableAccounts < 0 {
+		availableAccounts = 0
+	}
+
+	return &StockInfo{
+		Max:       maxAccounts,
+		Used:      usedAccounts,
+		Available: availableAccounts,
+	}, nil
+}
+
+func getUserCount() (int, error) {
+	res, err := apiCall("GET", "/users", nil)
+	if err != nil {
+		return 0, err
+	}
+
+	if res["success"] != true {
+		return 0, fmt.Errorf("Gagal mengambil data user")
+	}
+
+	switch data := res["data"].(type) {
+	case []interface{}:
+		return len(data), nil
+	default:
+		return 0, fmt.Errorf("Format data user tidak valid")
+	}
 }
 
 func listOnlineUsers(bot *tgbotapi.BotAPI, chatID int64) {

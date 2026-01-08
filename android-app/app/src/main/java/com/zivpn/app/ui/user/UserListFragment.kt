@@ -75,6 +75,13 @@ class UserListFragment : Fragment() {
                     currentServer = state.servers.first()
                     serverViewModel.selectServer(currentServer!!)
                 }
+
+                val stockInfo = state.serverInfo
+                binding.tvServerStock.text = if (stockInfo != null) {
+                    "Stok: ${stockInfo.usedAccounts}/${stockInfo.maxAccounts} (Sisa ${stockInfo.availableAccounts})"
+                } else {
+                    "Stok: -"
+                }
             }
         }
 
