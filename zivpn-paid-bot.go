@@ -234,6 +234,32 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 	case "create_package":
 		sendMessage(bot, chatID, "📦 Silakan pilih paket dari daftar di atas.")
 		return
+	case "create_days":
+		days, err := strconv.Atoi(text)
+		if err != nil || days <= 0 {
+			replyError(bot, chatID, "Durasi harus berupa angka positif (hari).")
+			return
+		}
+		mutex.Lock()
+		tempUserData[userID]["days"] = strconv.Itoa(days)
+		mutex.Unlock()
+		userStates[userID] = "create_ip_limit"
+		sendMessage(bot, chatID, "🔢 Masukkan jumlah IP (1-2):")
+	case "create_ip_limit":
+		ipLimit, err := strconv.Atoi(text)
+		if err != nil || ipLimit <= 0 {
+			replyError(bot, chatID, "Jumlah IP harus berupa angka positif.")
+			return
+		}
+		if err := validateIpLimit(ipLimit); err != nil {
+			replyError(bot, chatID, err.Error())
+			return
+		}
+		mutex.Lock()
+		tempUserData[userID]["ip_limit"] = strconv.Itoa(ipLimit)
+		mutex.Unlock()
+		userStates[userID] = "create_password"
+		sendMessage(bot, chatID, fmt.Sprintf("👤 Masukkan Password untuk paket %s:", tempUserData[userID]["package_name"]))
 	case "create_password":
 		if !validatePassword(bot, chatID, text) {
 			return
@@ -241,13 +267,19 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 		mutex.Lock()
 		tempUserData[userID]["password"] = text
 		mutex.Unlock()
-		days, err := strconv.Atoi(tempUserData[userID]["package_days"])
+		days, err := strconv.Atoi(tempUserData[userID]["days"])
 		if err != nil || days <= 0 {
 			replyError(bot, chatID, "Durasi paket tidak valid.")
 			resetState(userID)
 			return
 		}
-		processPayment(bot, chatID, userID, days, config)
+		ipLimit, err := strconv.Atoi(tempUserData[userID]["ip_limit"])
+		if err != nil || ipLimit <= 0 {
+			replyError(bot, chatID, "IP limit tidak valid.")
+			resetState(userID)
+			return
+		}
+		processPayment(bot, chatID, userID, days, ipLimit, config)
 
 	case "admin_add":
 		adminID, ok := parseAdminIDInput(bot, chatID, text)
@@ -338,16 +370,18 @@ func selectPackageForCreate(bot *tgbotapi.BotAPI, chatID int64, userID int64, da
 	mutex.Lock()
 	tempUserData[userID]["package_id"] = pkg.ID
 	tempUserData[userID]["package_name"] = pkg.Name
-	tempUserData[userID]["package_days"] = strconv.Itoa(pkg.Days)
-	tempUserData[userID]["ip_limit"] = strconv.Itoa(pkg.IpLimit)
 	tempUserData[userID]["protocols"] = strings.Join(pkg.Protocols, ",")
 	mutex.Unlock()
-	userStates[userID] = "create_password"
-	sendMessage(bot, chatID, fmt.Sprintf("👤 Masukkan Password untuk paket %s:", pkg.Name))
+	userStates[userID] = "create_days"
+	sendMessage(bot, chatID, fmt.Sprintf("⏳ Masukkan durasi (hari) untuk paket %s:", pkg.Name))
 }
 
-func processPayment(bot *tgbotapi.BotAPI, chatID int64, userID int64, days int, config *BotConfig) {
-	price := days * config.DailyPrice
+func processPayment(bot *tgbotapi.BotAPI, chatID int64, userID int64, days int, ipLimit int, config *BotConfig) {
+	extraIP := 0
+	if ipLimit > 1 {
+		extraIP = ipLimit - 1
+	}
+	price := (days * config.DailyPrice) + (extraIP * 2000)
 	if price < 500 {
 		sendMessage(bot, chatID, fmt.Sprintf("❌ Total harga Rp %d. Minimal transaksi adalah Rp 500.\nSilakan tambah durasi.", price))
 		return
@@ -371,8 +405,8 @@ func processPayment(bot *tgbotapi.BotAPI, chatID int64, userID int64, days int, 
 	// Generate QR Image URL
 	qrUrl := fmt.Sprintf("https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=%s", payment.PaymentNumber)
 
-	msgText := fmt.Sprintf("💳 **TAGIHAN PEMBAYARAN**\n\n🧾 **Ringkasan**\n• Paket   : %s\n• Password: `%s`\n• Durasi  : %d Hari\n• Limit IP: %s\n• Total   : Rp %d\n\n⏱️ **Batas Waktu**\n• Expired : %s\n\n📌 Silakan scan QRIS di atas untuk membayar.\n🔄 Sistem akan mengecek pembayaran otomatis setiap menit.",
-		tempUserData[userID]["package_name"], tempUserData[userID]["password"], days, tempUserData[userID]["ip_limit"], price, payment.ExpiredAt)
+	msgText := fmt.Sprintf("💳 **TAGIHAN PEMBAYARAN**\n\n🧾 **Ringkasan**\n• Paket            : %s\n• Password         : `%s`\n• Durasi           : %d Hari\n• Limit IP         : %d\n• Biaya IP tambahan: Rp %d\n• Total            : Rp %d\n\n⏱️ **Batas Waktu**\n• Expired : %s\n\n📌 Silakan scan QRIS di atas untuk membayar.\n🔄 Sistem akan mengecek pembayaran otomatis setiap menit.",
+		tempUserData[userID]["package_name"], tempUserData[userID]["password"], days, ipLimit, extraIP*2000, price, payment.ExpiredAt)
 
 	photo := tgbotapi.NewPhoto(chatID, tgbotapi.FileURL(qrUrl))
 	photo.Caption = msgText
@@ -408,7 +442,22 @@ func startPaymentChecker(bot *tgbotapi.BotAPI, config *BotConfig) {
 				if err == nil && (status == "completed" || status == "success") {
 					// Payment Success
 					password := data["password"]
-					createUser(bot, chatID, password, data["package_id"], config)
+					days, err := strconv.Atoi(data["days"])
+					if err != nil || days <= 0 {
+						log.Printf("Invalid days for user %d: %v", userID, err)
+						delete(tempUserData, userID)
+						delete(userStates, userID)
+						continue
+					}
+					ipLimit, err := strconv.Atoi(data["ip_limit"])
+					if err != nil || ipLimit <= 0 {
+						log.Printf("Invalid ip limit for user %d: %v", userID, err)
+						delete(tempUserData, userID)
+						delete(userStates, userID)
+						continue
+					}
+					protocols := parseProtocolsCSV(data["protocols"])
+					createUser(bot, chatID, password, days, ipLimit, protocols, config)
 					delete(tempUserData, userID)
 					delete(userStates, userID)
 				} else if err != nil {
@@ -420,10 +469,12 @@ func startPaymentChecker(bot *tgbotapi.BotAPI, config *BotConfig) {
 	}
 }
 
-func createUser(bot *tgbotapi.BotAPI, chatID int64, password string, packageID string, config *BotConfig) {
+func createUser(bot *tgbotapi.BotAPI, chatID int64, password string, days int, ipLimit int, protocols []string, config *BotConfig) {
 	payload := map[string]interface{}{
-		"password":   password,
-		"package_id": packageID,
+		"password":  password,
+		"days":      days,
+		"ip_limit":  ipLimit,
+		"protocols": protocols,
 	}
 
 	res, err := apiCall("POST", "/user/create", payload)
@@ -662,6 +713,25 @@ func validateNumber(bot *tgbotapi.BotAPI, chatID int64, text string, min, max in
 		return 0, false
 	}
 	return val, true
+}
+
+func validateIpLimit(limit int) error {
+	if limit < 1 || limit > 2 {
+		return fmt.Errorf("IP limit harus antara 1-2")
+	}
+	return nil
+}
+
+func parseProtocolsCSV(protocols string) []string {
+	parts := strings.Split(protocols, ",")
+	results := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value != "" {
+			results = append(results, value)
+		}
+	}
+	return results
 }
 
 func parseProtocolsInput(bot *tgbotapi.BotAPI, chatID int64, text string) ([]string, bool) {
