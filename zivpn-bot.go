@@ -180,6 +180,7 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 
 	chatID := query.Message.Chat.ID
 	userID := query.From.ID
+	callbackText := ""
 
 	switch {
 	// --- Menu Navigation ---
@@ -236,7 +237,7 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 	case query.Data == "cancel":
 		cancelOperation(bot, chatID, userID, config)
 	case strings.HasPrefix(query.Data, "section_"):
-		// Section headers are non-actionable.
+		callbackText = "Pilih menu di bawah header."
 
 	// --- Pagination ---
 	case strings.HasPrefix(query.Data, "page_"):
@@ -260,7 +261,7 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 		toggleMode(bot, chatID, userID, config)
 	}
 
-	bot.Request(tgbotapi.NewCallback(query.ID, ""))
+	bot.Request(tgbotapi.NewCallback(query.ID, callbackText))
 }
 
 func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, config *BotConfig) {
