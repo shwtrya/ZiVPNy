@@ -86,6 +86,28 @@ Jika format log ZiVPN berbeda, edit `failregex` di filter `zivpn.conf` lalu rest
 *   **Public User**: Hanya bisa membeli akun (Create) dan Cek Info.
 *   **Admin**: Memiliki menu rahasia **🛠️ Admin Panel** yang berisi fitur manajemen dan **Backup & Restore**.
 
+### Format bot-config.json (Multi Admin)
+Bot kini mendukung multi-admin melalui **admin_ids** dan/atau **admin_roles**.
+
+```json
+{
+  "bot_token": "TOKEN_BOT",
+  "admin_id": 123456789,
+  "admin_ids": [123456789, 987654321],
+  "admin_roles": {
+    "123456789": "owner",
+    "987654321": "admin"
+  },
+  "mode": "public",
+  "domain": "vpn.domain.com"
+}
+```
+
+Catatan:
+* `admin_id` tetap didukung untuk kompatibilitas lama.
+* `admin_ids` berisi daftar ID admin tambahan.
+* `admin_roles` adalah map ID → role (`owner`/`admin`/`superadmin`). Role lain dianggap non-admin.
+
 ### Fitur Backup & Restore
 *   **Backup**: Bot mengirim file ZIP berisi semua data server (backup full).
     *   [ ] `/etc/zivpn/config.json`
