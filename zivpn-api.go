@@ -621,7 +621,7 @@ func getSystemInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func getCPUInfo() string {
-	data, err := os.ReadFile("/proc/cpuinfo")
+	data, err := ioutil.ReadFile("/proc/cpuinfo")
 	if err != nil {
 		return "Unknown"
 	}
@@ -656,7 +656,7 @@ func getCPUInfo() string {
 }
 
 func getRAMInfo() string {
-	data, err := os.ReadFile("/proc/meminfo")
+	data, err := ioutil.ReadFile("/proc/meminfo")
 	if err != nil {
 		return "Unknown"
 	}
@@ -705,7 +705,7 @@ func getDiskUsage() string {
 }
 
 func getUptimeInfo() string {
-	data, err := os.ReadFile("/proc/uptime")
+	data, err := ioutil.ReadFile("/proc/uptime")
 	if err != nil {
 		return "Unknown"
 	}
@@ -721,7 +721,7 @@ func getUptimeInfo() string {
 }
 
 func getLoadAverage() string {
-	data, err := os.ReadFile("/proc/loadavg")
+	data, err := ioutil.ReadFile("/proc/loadavg")
 	if err != nil {
 		return "Unknown"
 	}
@@ -744,7 +744,7 @@ func getKernelVersion() string {
 func getZiVPNVersion() string {
 	paths := []string{"/etc/zivpn/version", "/etc/zivpn/VERSION"}
 	for _, path := range paths {
-		if data, err := os.ReadFile(path); err == nil {
+		if data, err := ioutil.ReadFile(path); err == nil {
 			version := strings.TrimSpace(string(data))
 			if version != "" {
 				return version
