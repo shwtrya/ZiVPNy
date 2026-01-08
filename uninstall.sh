@@ -37,6 +37,9 @@ echo ""
 
 run_silent "Stopping services" "systemctl stop zivpn.service zivpn-api.service zivpn-bot.service zivpn_backfill.service &>/dev/null; systemctl disable zivpn.service zivpn-api.service zivpn-bot.service zivpn_backfill.service &>/dev/null; killall zivpn zivpn-api zivpn-bot &>/dev/null"
 
+run_silent "Disabling Fail2ban ZiVPN jail" "if command -v fail2ban-client &>/dev/null; then fail2ban-client stop zivpn-udp &>/dev/null || true; fi"
+run_silent "Removing Fail2ban config" "rm -f /etc/fail2ban/jail.d/zivpn.local /etc/fail2ban/filter.d/zivpn.conf; systemctl restart fail2ban &>/dev/null || true"
+
 run_silent "Removing torrent blocker" "[ -x /etc/zivpn/torrent-block-remove.sh ] && /etc/zivpn/torrent-block-remove.sh || true"
 run_silent "Removing files" "rm -rf /etc/zivpn /usr/local/bin/zivpn /etc/systemd/system/zivpn.service /etc/systemd/system/zivpn-api.service /etc/systemd/system/zivpn-bot.service /etc/systemd/system/zivpn_backfill.service /etc/zivpn-iptables-fix-applied /usr/local/bin/menu-zivpn /etc/zivpn/bot-config.json /etc/zivpn/apikey"
 
