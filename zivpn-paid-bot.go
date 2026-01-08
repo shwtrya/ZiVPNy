@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,14 +40,15 @@ var ApiUrl = "http://127.0.0.1:" + PortFile + "/api"
 var ApiKey = "AutoFtBot-agskjgdvsbdreiWG1234512SDKrqw"
 
 type BotConfig struct {
-	BotToken      string  `json:"bot_token"`
-	AdminID       int64   `json:"admin_id"`
-	AdminIDs      []int64 `json:"admin_ids,omitempty"`
-	Mode          string  `json:"mode"`
-	Domain        string  `json:"domain"`
-	PakasirSlug   string  `json:"pakasir_slug"`
-	PakasirApiKey string  `json:"pakasir_api_key"`
-	DailyPrice    int     `json:"daily_price"`
+	BotToken      string            `json:"bot_token"`
+	AdminID       int64             `json:"admin_id"`
+	AdminIDs      []int64           `json:"admin_ids,omitempty"`
+	AdminRoles    map[string]string `json:"admin_roles,omitempty"`
+	Mode          string            `json:"mode"`
+	Domain        string            `json:"domain"`
+	PakasirSlug   string            `json:"pakasir_slug"`
+	PakasirApiKey string            `json:"pakasir_api_key"`
+	DailyPrice    int               `json:"daily_price"`
 }
 
 type IpInfo struct {
@@ -166,6 +168,22 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 		startCreateUser(bot, chatID, userID)
 	case query.Data == "menu_info":
 		systemInfo(bot, chatID, config)
+	case query.Data == "menu_admins":
+		if isAdmin(config, userID) {
+			showAdminMenu(bot, chatID)
+		}
+	case query.Data == "menu_admin_add":
+		if isAdmin(config, userID) {
+			startAddAdmin(bot, chatID, userID)
+		}
+	case query.Data == "menu_admin_remove":
+		if isAdmin(config, userID) {
+			startRemoveAdmin(bot, chatID, userID)
+		}
+	case query.Data == "menu_admin_list":
+		if isAdmin(config, userID) {
+			listAdmins(bot, chatID, config)
+		}
 	case query.Data == "cancel":
 		cancelOperation(bot, chatID, userID, config)
 	case strings.HasPrefix(query.Data, "section_"):
@@ -241,6 +259,40 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 
 		// Process Payment
 		processPayment(bot, chatID, userID, days, config)
+
+	case "admin_add":
+		adminID, ok := parseAdminIDInput(bot, chatID, text)
+		if !ok {
+			return
+		}
+		if err := addAdmin(config, adminID); err != nil {
+			replyError(bot, chatID, err.Error())
+			return
+		}
+		if err := saveConfig(config); err != nil {
+			replyError(bot, chatID, "Gagal menyimpan konfigurasi.")
+			return
+		}
+		resetState(userID)
+		sendMessage(bot, chatID, fmt.Sprintf("✅ Admin berhasil ditambahkan: %d", adminID))
+		showMainMenu(bot, chatID, config)
+
+	case "admin_remove":
+		adminID, ok := parseAdminIDInput(bot, chatID, text)
+		if !ok {
+			return
+		}
+		if err := removeAdmin(config, adminID); err != nil {
+			replyError(bot, chatID, err.Error())
+			return
+		}
+		if err := saveConfig(config); err != nil {
+			replyError(bot, chatID, "Gagal menyimpan konfigurasi.")
+			return
+		}
+		resetState(userID)
+		sendMessage(bot, chatID, fmt.Sprintf("✅ Admin berhasil dihapus: %d", adminID))
+		showMainMenu(bot, chatID, config)
 	}
 }
 
@@ -704,6 +756,9 @@ func showBackupRestoreMenu(bot *tgbotapi.BotAPI, chatID int64) {
 			tgbotapi.NewInlineKeyboardButtonData("📡 Akun Online", "menu_online"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("👥 Kelola Admin", "menu_admins"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("⬇️ Backup Data", "menu_backup_action"),
 			tgbotapi.NewInlineKeyboardButtonData("⬆️ Restore Data", "menu_restore_action"),
 		),
@@ -711,6 +766,59 @@ func showBackupRestoreMenu(bot *tgbotapi.BotAPI, chatID int64) {
 			tgbotapi.NewInlineKeyboardButtonData("❌ Kembali", "cancel"),
 		),
 	)
+	sendAndTrack(bot, msg)
+}
+
+func showAdminMenu(bot *tgbotapi.BotAPI, chatID int64) {
+	msg := tgbotapi.NewMessage(chatID, "👥 *Kelola Admin*\nPilih aksi:")
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➕ Tambah Admin", "menu_admin_add"),
+			tgbotapi.NewInlineKeyboardButtonData("➖ Hapus Admin", "menu_admin_remove"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📋 Daftar Admin", "menu_admin_list"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Kembali", "cancel"),
+		),
+	)
+	sendAndTrack(bot, msg)
+}
+
+func startAddAdmin(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
+	userStates[userID] = "admin_add"
+	sendMessage(bot, chatID, "Masukkan Admin ID Telegram yang ingin ditambahkan:")
+}
+
+func startRemoveAdmin(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
+	userStates[userID] = "admin_remove"
+	sendMessage(bot, chatID, "Masukkan Admin ID Telegram yang ingin dihapus:")
+}
+
+func listAdmins(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
+	admins := adminIDSet(config)
+	if len(admins) == 0 {
+		sendMessage(bot, chatID, "Belum ada admin terdaftar.")
+		return
+	}
+
+	ids := make([]int64, 0, len(admins))
+	for id := range admins {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	var builder strings.Builder
+	builder.WriteString("📋 *Daftar Admin*\n")
+	for _, id := range ids {
+		role := resolveAdminRole(config, id)
+		builder.WriteString(fmt.Sprintf("• `%d` (%s)\n", id, role))
+	}
+
+	msg := tgbotapi.NewMessage(chatID, builder.String())
+	msg.ParseMode = "Markdown"
 	sendAndTrack(bot, msg)
 }
 
@@ -867,12 +975,36 @@ func processRestoreFile(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *Bot
 // ==========================================
 
 func isAdmin(config *BotConfig, userID int64) bool {
+	if config == nil {
+		return false
+	}
+	if hasAdminRole(config, userID) {
+		return true
+	}
 	for _, adminID := range config.AdminIDs {
 		if userID == adminID {
 			return true
 		}
 	}
 	return userID == config.AdminID
+}
+
+func hasAdminRole(config *BotConfig, userID int64) bool {
+	if config.AdminRoles == nil {
+		return false
+	}
+	role, ok := config.AdminRoles[strconv.FormatInt(userID, 10)]
+	return ok && isAdminRole(role)
+}
+
+func isAdminRole(role string) bool {
+	role = strings.ToLower(strings.TrimSpace(role))
+	switch role {
+	case "", "admin", "owner", "superadmin":
+		return true
+	default:
+		return false
+	}
 }
 
 type BotNotification struct {
@@ -952,19 +1084,109 @@ func notifyAdmins(bot *tgbotapi.BotAPI, config *BotConfig, message string) {
 }
 
 func adminRecipients(config *BotConfig) []int64 {
+	return mapToSortedIDs(adminIDSet(config))
+}
+
+func adminIDSet(config *BotConfig) map[int64]struct{} {
 	unique := make(map[int64]struct{})
-	for _, adminID := range config.AdminIDs {
-		unique[adminID] = struct{}{}
+	if config == nil {
+		return unique
 	}
 	if config.AdminID != 0 {
 		unique[config.AdminID] = struct{}{}
 	}
-
-	recipients := make([]int64, 0, len(unique))
-	for adminID := range unique {
-		recipients = append(recipients, adminID)
+	for _, adminID := range config.AdminIDs {
+		if adminID != 0 {
+			unique[adminID] = struct{}{}
+		}
 	}
-	return recipients
+	for idStr, role := range config.AdminRoles {
+		if !isAdminRole(role) {
+			continue
+		}
+		if id, err := strconv.ParseInt(strings.TrimSpace(idStr), 10, 64); err == nil && id != 0 {
+			unique[id] = struct{}{}
+		}
+	}
+	return unique
+}
+
+func mapToSortedIDs(unique map[int64]struct{}) []int64 {
+	ids := make([]int64, 0, len(unique))
+	for id := range unique {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+func parseAdminIDInput(bot *tgbotapi.BotAPI, chatID int64, text string) (int64, bool) {
+	adminID, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
+	if err != nil || adminID <= 0 {
+		sendMessage(bot, chatID, "❌ Admin ID tidak valid. Masukkan angka Telegram ID.")
+		return 0, false
+	}
+	return adminID, true
+}
+
+func addAdmin(config *BotConfig, adminID int64) error {
+	if config == nil {
+		return fmt.Errorf("Konfigurasi tidak tersedia.")
+	}
+	if isAdmin(config, adminID) {
+		return fmt.Errorf("Admin sudah terdaftar.")
+	}
+	config.AdminIDs = append(config.AdminIDs, adminID)
+	if config.AdminRoles == nil {
+		config.AdminRoles = make(map[string]string)
+	}
+	config.AdminRoles[strconv.FormatInt(adminID, 10)] = "admin"
+	config.AdminIDs = mapToSortedIDs(adminIDSet(config))
+	return nil
+}
+
+func removeAdmin(config *BotConfig, adminID int64) error {
+	if config == nil {
+		return fmt.Errorf("Konfigurasi tidak tersedia.")
+	}
+	if adminID == config.AdminID {
+		return fmt.Errorf("Tidak bisa menghapus admin utama.")
+	}
+	if !isAdmin(config, adminID) {
+		return fmt.Errorf("Admin tidak ditemukan.")
+	}
+	filtered := make([]int64, 0, len(config.AdminIDs))
+	for _, id := range config.AdminIDs {
+		if id != adminID {
+			filtered = append(filtered, id)
+		}
+	}
+	config.AdminIDs = filtered
+	if config.AdminRoles != nil {
+		delete(config.AdminRoles, strconv.FormatInt(adminID, 10))
+	}
+	config.AdminIDs = mapToSortedIDs(adminIDSet(config))
+	return nil
+}
+
+func resolveAdminRole(config *BotConfig, adminID int64) string {
+	if adminID == config.AdminID {
+		return "owner"
+	}
+	if config.AdminRoles != nil {
+		if role, ok := config.AdminRoles[strconv.FormatInt(adminID, 10)]; ok && role != "" {
+			return role
+		}
+	}
+	return "admin"
+}
+
+func saveConfig(config *BotConfig) error {
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(BotConfigFile, data, 0644)
 }
 
 func loadConfig() (BotConfig, error) {
@@ -975,9 +1197,7 @@ func loadConfig() (BotConfig, error) {
 	}
 	err = json.Unmarshal(file, &config)
 
-	if len(config.AdminIDs) == 0 && config.AdminID != 0 {
-		config.AdminIDs = []int64{config.AdminID}
-	}
+	normalizeAdminConfig(&config)
 
 	if config.Domain == "" {
 		if domainBytes, err := ioutil.ReadFile(DomainFile); err == nil {
@@ -986,6 +1206,17 @@ func loadConfig() (BotConfig, error) {
 	}
 
 	return config, err
+}
+
+func normalizeAdminConfig(config *BotConfig) {
+	if config == nil {
+		return
+	}
+	adminSet := adminIDSet(config)
+	if len(adminSet) == 0 && config.AdminID != 0 {
+		adminSet[config.AdminID] = struct{}{}
+	}
+	config.AdminIDs = mapToSortedIDs(adminSet)
 }
 
 func apiCall(method, endpoint string, payload interface{}) (map[string]interface{}, error) {
