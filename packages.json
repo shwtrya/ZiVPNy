@@ -1,0 +1,16 @@
+[
+  {
+    "id": "basic",
+    "name": "Basic 7 Hari",
+    "days": 7,
+    "ip_limit": 1,
+    "protocols": ["udp"]
+  },
+  {
+    "id": "pro",
+    "name": "Pro 30 Hari",
+    "days": 30,
+    "ip_limit": 2,
+    "protocols": ["udp", "ws", "ssl"]
+  }
+]

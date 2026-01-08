@@ -31,6 +31,7 @@ const (
 	ApiKeyFile    = "/etc/zivpn/apikey"
 	DomainFile    = "/etc/zivpn/domain"
 	PortFile      = "/etc/zivpn/port"
+	PackagesFile  = "/etc/zivpn/packages.json"
 	BotNotifyAddr = "127.0.0.1:9871"
 )
 
@@ -60,6 +61,14 @@ type UserData struct {
 	Status    string   `json:"status"`
 	Protocols []string `json:"protocols"`
 	IpLimit   int      `json:"ip_limit"`
+}
+
+type Package struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Days      int      `json:"days"`
+	IpLimit   int      `json:"ip_limit"`
+	Protocols []string `json:"protocols"`
 }
 
 type OnlineAccount struct {
@@ -238,6 +247,8 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 		startRenewUser(bot, chatID, userID, query.Data)
 	case strings.HasPrefix(query.Data, "select_delete:"):
 		confirmDeleteUser(bot, chatID, query.Data)
+	case strings.HasPrefix(query.Data, "select_package:"):
+		selectPackageForCreate(bot, chatID, userID, query.Data)
 
 	// --- Action Confirmation ---
 	case strings.HasPrefix(query.Data, "confirm_delete:"):
@@ -258,42 +269,15 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 	chatID := msg.Chat.ID
 
 	switch state {
+	case "create_package":
+		sendMessage(bot, chatID, "📦 Silakan pilih paket dari daftar di atas.")
+		return
 	case "create_username":
 		if !validateUsername(bot, chatID, text) {
 			return
 		}
 		tempUserData[userID]["username"] = text
-		userStates[userID] = "create_protocols"
-		sendMessage(bot, chatID, "🧩 Masukkan protokol (pisahkan koma): udp, ssh, dropbear, ws, ssl")
-
-	case "create_protocols":
-		protocols, ok := parseProtocolsInput(bot, chatID, text, true)
-		if !ok {
-			return
-		}
-		tempUserData[userID]["protocols"] = strings.Join(protocols, ",")
-		userStates[userID] = "create_ip_limit"
-		sendMessage(bot, chatID, "📌 Masukkan Limit IP (1-2):")
-
-	case "create_ip_limit":
-		_, ok := validateNumber(bot, chatID, text, 1, 2, "Limit IP")
-		if !ok {
-			return
-		}
-		tempUserData[userID]["ip_limit"] = text
-		userStates[userID] = "create_days"
-		sendMessage(bot, chatID, "⏳ Masukkan Durasi (hari):")
-
-	case "create_days":
-		_, ok := validateNumber(bot, chatID, text, 1, 9999, "Durasi")
-		if !ok {
-			return
-		}
-		tempUserData[userID]["days"] = text
-
-		days, _ := strconv.Atoi(text)
-		ipLimit, _ := strconv.Atoi(tempUserData[userID]["ip_limit"])
-		createUser(bot, chatID, tempUserData[userID]["username"], days, tempUserData[userID]["protocols"], ipLimit, config)
+		createUser(bot, chatID, tempUserData[userID]["username"], tempUserData[userID]["package_id"], config)
 		resetState(userID)
 
 	case "renew_protocols":
@@ -359,9 +343,52 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 // ==========================================
 
 func startCreateUser(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
-	userStates[userID] = "create_username"
 	tempUserData[userID] = make(map[string]string)
-	sendMessage(bot, chatID, "👤 Masukkan Password:")
+	userStates[userID] = "create_package"
+	showPackageMenu(bot, chatID, userID)
+}
+
+func showPackageMenu(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
+	packages, err := loadPackages()
+	if err != nil {
+		replyError(bot, chatID, "Gagal membaca paket: "+err.Error())
+		return
+	}
+	if len(packages) == 0 {
+		replyError(bot, chatID, "Paket belum tersedia. Hubungi admin.")
+		return
+	}
+
+	lines := []string{"📦 *PILIH PAKET*"}
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, pkg := range packages {
+		protocols := strings.Join(pkg.Protocols, ", ")
+		lines = append(lines, fmt.Sprintf("• *%s* (`%s`) — %d hari, IP %d, %s", pkg.Name, pkg.ID, pkg.Days, pkg.IpLimit, protocols))
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("%s (%d hari)", pkg.Name, pkg.Days), "select_package:"+pkg.ID),
+		))
+	}
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Batal", "cancel"),
+	))
+
+	msg := tgbotapi.NewMessage(chatID, strings.Join(lines, "\n"))
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	sendAndTrack(bot, msg)
+}
+
+func selectPackageForCreate(bot *tgbotapi.BotAPI, chatID int64, userID int64, data string) {
+	packageID := strings.TrimPrefix(data, "select_package:")
+	pkg, err := findPackageByID(packageID)
+	if err != nil {
+		replyError(bot, chatID, err.Error())
+		return
+	}
+	tempUserData[userID]["package_id"] = pkg.ID
+	tempUserData[userID]["package_name"] = pkg.Name
+	userStates[userID] = "create_username"
+	sendMessage(bot, chatID, fmt.Sprintf("👤 Masukkan Password untuk paket %s:", pkg.Name))
 }
 
 func startRenewUser(bot *tgbotapi.BotAPI, chatID int64, userID int64, data string) {
@@ -409,14 +436,10 @@ func toggleMode(bot *tgbotapi.BotAPI, chatID int64, userID int64, config *BotCon
 	showMainMenu(bot, chatID, config)
 }
 
-func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int, protocols string, ipLimit int, config *BotConfig) {
+func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, packageID string, config *BotConfig) {
 	payload := map[string]interface{}{
-		"password": username,
-		"days":     days,
-		"ip_limit": ipLimit,
-	}
-	if protocols != "" {
-		payload["protocols"] = strings.Split(protocols, ",")
+		"password":   username,
+		"package_id": packageID,
 	}
 
 	res, err := apiCall("POST", "/user/create", payload)
@@ -1049,6 +1072,39 @@ func deleteLastMessage(bot *tgbotapi.BotAPI, chatID int64) {
 func resetState(userID int64) {
 	delete(userStates, userID)
 	delete(tempUserData, userID)
+}
+
+func loadPackages() ([]Package, error) {
+	data, err := os.ReadFile(PackagesFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var wrapped struct {
+		Packages []Package `json:"packages"`
+	}
+	if err := json.Unmarshal(data, &wrapped); err == nil && len(wrapped.Packages) > 0 {
+		return wrapped.Packages, nil
+	}
+
+	var packages []Package
+	if err := json.Unmarshal(data, &packages); err != nil {
+		return nil, err
+	}
+	return packages, nil
+}
+
+func findPackageByID(packageID string) (Package, error) {
+	packages, err := loadPackages()
+	if err != nil {
+		return Package{}, fmt.Errorf("Gagal membaca paket: %v", err)
+	}
+	for _, pkg := range packages {
+		if strings.EqualFold(pkg.ID, packageID) {
+			return pkg, nil
+		}
+	}
+	return Package{}, fmt.Errorf("Paket tidak ditemukan")
 }
 
 // ==========================================

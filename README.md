@@ -122,6 +122,31 @@ Catatan:
 
 ---
 
+## 📦 Paket Akun (Template)
+
+Bot dan API dapat menggunakan template paket dari `/etc/zivpn/packages.json`. Contoh format:
+
+```json
+[
+  {
+    "id": "basic",
+    "name": "Basic 7 Hari",
+    "days": 7,
+    "ip_limit": 1,
+    "protocols": ["udp"]
+  },
+  {
+    "id": "pro",
+    "name": "Pro 30 Hari",
+    "days": 30,
+    "ip_limit": 2,
+    "protocols": ["udp", "ws", "ssl"]
+  }
+]
+```
+
+---
+
 ## ⏱️ Jadwal Cron
 
 Cron job otomatis dijalankan di server untuk maintenance akun:
@@ -160,7 +185,9 @@ API berjalan di port `8080`. Gunakan **API Key** pada header `X-API-Key`.
 ### 1. Create User
 *   **Endpoint**: `/api/user/create`
 *   **Method**: `POST`
-*   **Body**: `{ "password": "user1", "days": 30 }`
+*   **Body**:
+    *   Manual: `{ "password": "user1", "days": 30, "ip_limit": 1, "protocols": ["udp"] }`
+    *   Paket: `{ "password": "user1", "package_id": "basic" }`
 
 ### 2. Delete User
 *   **Endpoint**: `/api/user/delete`

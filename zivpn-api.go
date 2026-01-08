@@ -26,6 +26,7 @@ const (
 	Port         = "/etc/zivpn/api_port"
 	PortFile     = "/etc/zivpn/port"
 	ProtocolDir  = "/etc/zivpn/protocols"
+	PackagesFile = "/etc/zivpn/packages.json"
 	LogFile      = "/var/log/zivpn.log"
 	BotNotifyURL = "http://127.0.0.1:9871/notify"
 )
@@ -60,6 +61,7 @@ type UserRequest struct {
 	Protocols       []string                     `json:"protocols"`
 	ProtocolOptions map[string]map[string]string `json:"protocol_options"`
 	IpLimit         int                          `json:"ip_limit"`
+	PackageID       string                       `json:"package_id"`
 }
 
 type UserStore struct {
@@ -84,6 +86,14 @@ type BotNotification struct {
 	Users   []string `json:"users,omitempty"`
 	Count   int      `json:"count,omitempty"`
 	Date    string   `json:"date,omitempty"`
+}
+
+type Package struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Days      int      `json:"days"`
+	IpLimit   int      `json:"ip_limit"`
+	Protocols []string `json:"protocols"`
 }
 
 var mutex = &sync.Mutex{}
@@ -181,6 +191,18 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if password == "" && username != "" {
 		password = username
+	}
+
+	packageID := strings.TrimSpace(req.PackageID)
+	if packageID != "" {
+		pkg, err := findPackageByID(packageID)
+		if err != nil {
+			jsonResponse(w, http.StatusBadRequest, false, err.Error(), nil)
+			return
+		}
+		req.Days = pkg.Days
+		req.Protocols = pkg.Protocols
+		req.IpLimit = pkg.IpLimit
 	}
 
 	if password == "" || req.Days <= 0 {
@@ -1110,6 +1132,48 @@ func saveUsers(users []UserStore) error {
 		return err
 	}
 	return ioutil.WriteFile(UserDB, data, 0644)
+}
+
+func loadPackages() ([]Package, error) {
+	data, err := ioutil.ReadFile(PackagesFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var wrapped struct {
+		Packages []Package `json:"packages"`
+	}
+	if err := json.Unmarshal(data, &wrapped); err == nil && len(wrapped.Packages) > 0 {
+		return wrapped.Packages, nil
+	}
+
+	var packages []Package
+	if err := json.Unmarshal(data, &packages); err != nil {
+		return nil, err
+	}
+	return packages, nil
+}
+
+func findPackageByID(packageID string) (Package, error) {
+	packages, err := loadPackages()
+	if err != nil {
+		return Package{}, fmt.Errorf("Gagal membaca paket: %v", err)
+	}
+	for _, pkg := range packages {
+		if strings.EqualFold(pkg.ID, packageID) {
+			if pkg.Days <= 0 {
+				return Package{}, fmt.Errorf("Durasi paket tidak valid")
+			}
+			if err := validateIpLimit(pkg.IpLimit); err != nil {
+				return Package{}, err
+			}
+			if len(pkg.Protocols) == 0 {
+				return Package{}, fmt.Errorf("Protokol paket tidak valid")
+			}
+			return pkg, nil
+		}
+	}
+	return Package{}, fmt.Errorf("Paket tidak ditemukan")
 }
 
 func restartService() error {
