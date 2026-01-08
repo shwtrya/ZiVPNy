@@ -40,10 +40,17 @@ class UserViewModel @Inject constructor(
         }
     }
 
-    fun createUser(server: Server, password: String, days: Int) {
+    fun createUser(
+        server: Server,
+        username: String,
+        password: String,
+        days: Int,
+        ipLimit: Int,
+        protocols: List<String>
+    ) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-            repository.createUser(server, password, days)
+            repository.createUser(server, username, password, days, ipLimit, protocols)
                 .onSuccess { user ->
                     _uiState.update { it.copy(isLoading = false, message = "User ${user.password} berhasil dibuat") }
                     loadUsers(server)
@@ -68,10 +75,17 @@ class UserViewModel @Inject constructor(
         }
     }
 
-    fun renewUser(server: Server, password: String, days: Int) {
+    fun renewUser(
+        server: Server,
+        username: String,
+        password: String,
+        days: Int,
+        ipLimit: Int,
+        protocols: List<String>
+    ) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-            repository.renewUser(server, password, days)
+            repository.renewUser(server, username, password, days, ipLimit, protocols)
                 .onSuccess { user ->
                     _uiState.update { it.copy(isLoading = false, message = "User ${user.password} diperpanjang sampai ${user.expired}") }
                     loadUsers(server)

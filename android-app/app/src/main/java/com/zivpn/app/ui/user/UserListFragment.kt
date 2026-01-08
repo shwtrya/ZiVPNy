@@ -100,17 +100,25 @@ class UserListFragment : Fragment() {
     private fun showAddUserDialog() {
         val server = currentServer ?: return
         val dialogView = layoutInflater.inflate(R.layout.dialog_add_user, null)
+        val etUsername = dialogView.findViewById<EditText>(R.id.et_username)
         val etPassword = dialogView.findViewById<EditText>(R.id.et_password)
         val etDays = dialogView.findViewById<EditText>(R.id.et_days)
+        val etIpLimit = dialogView.findViewById<EditText>(R.id.et_ip_limit)
+        val etProtocols = dialogView.findViewById<EditText>(R.id.et_protocols)
 
         MaterialAlertDialogBuilder(requireContext())
             .setTitle("Tambah User")
             .setView(dialogView)
             .setPositiveButton("Buat") { _, _ ->
-                val password = etPassword.text.toString().trim()
+                val usernameInput = etUsername.text.toString().trim()
+                val passwordInput = etPassword.text.toString().trim()
+                val username = usernameInput.ifEmpty { passwordInput }
+                val password = passwordInput.ifEmpty { usernameInput }
                 val days = etDays.text.toString().toIntOrNull() ?: 30
+                val ipLimit = etIpLimit.text.toString().toIntOrNull()?.takeIf { it > 0 } ?: 1
+                val protocols = parseProtocols(etProtocols.text.toString())
                 if (password.isNotEmpty()) {
-                    userViewModel.createUser(server, password, days)
+                    userViewModel.createUser(server, username, password, days, ipLimit, protocols)
                 }
             }
             .setNegativeButton("Batal", null)
@@ -130,14 +138,27 @@ class UserListFragment : Fragment() {
     private fun showRenewDialog(user: User) {
         val server = currentServer ?: return
         val dialogView = layoutInflater.inflate(R.layout.dialog_renew_user, null)
+        val etUsername = dialogView.findViewById<EditText>(R.id.et_username)
+        val etPassword = dialogView.findViewById<EditText>(R.id.et_password)
         val etDays = dialogView.findViewById<EditText>(R.id.et_days)
+        val etIpLimit = dialogView.findViewById<EditText>(R.id.et_ip_limit)
+        val etProtocols = dialogView.findViewById<EditText>(R.id.et_protocols)
+
+        etUsername.setText(user.password)
+        etPassword.setText(user.password)
 
         MaterialAlertDialogBuilder(requireContext())
             .setTitle("Perpanjang ${user.password}")
             .setView(dialogView)
             .setPositiveButton("Perpanjang") { _, _ ->
+                val usernameInput = etUsername.text.toString().trim()
+                val passwordInput = etPassword.text.toString().trim()
+                val username = usernameInput.ifEmpty { passwordInput }
+                val password = passwordInput.ifEmpty { usernameInput.ifEmpty { user.password } }
                 val days = etDays.text.toString().toIntOrNull() ?: 30
-                userViewModel.renewUser(server, user.password, days)
+                val ipLimit = etIpLimit.text.toString().toIntOrNull()?.takeIf { it > 0 } ?: 1
+                val protocols = parseProtocols(etProtocols.text.toString())
+                userViewModel.renewUser(server, username, password, days, ipLimit, protocols)
             }
             .setNegativeButton("Batal", null)
             .show()
@@ -156,5 +177,15 @@ class UserListFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    private fun parseProtocols(input: String): List<String> {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) {
+            return emptyList()
+        }
+        return trimmed.split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
     }
 }

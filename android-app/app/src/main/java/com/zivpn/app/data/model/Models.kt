@@ -33,8 +33,12 @@ data class ApiResponse<T>(
 
 // Request untuk create/delete/renew user
 data class UserRequest(
-    val password: String,
-    val days: Int = 0
+    val username: String? = null,
+    val password: String = "",
+    val days: Int = 0,
+    @SerializedName("ip_limit") val ipLimit: Int = 0,
+    val protocols: List<String> = emptyList(),
+    @SerializedName("protocol_options") val protocolOptions: Map<String, Map<String, String>>? = null
 )
 
 // Info server dari API
