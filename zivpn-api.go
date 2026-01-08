@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +23,9 @@ const (
 	DomainFile  = "/etc/zivpn/domain"
 	ApiKeyFile  = "/etc/zivpn/apikey"
 	Port        = "/etc/zivpn/api_port"
+	PortFile    = "/etc/zivpn/port"
 	ProtocolDir = "/etc/zivpn/protocols"
+	LogFile     = "/var/log/zivpn.log"
 )
 
 var AuthToken = "AutoFtBot-agskjgdvsbdreiWG1234512SDKrqw"
@@ -85,6 +90,7 @@ func main() {
 	http.HandleFunc("/api/user/delete", authMiddleware(deleteUser))
 	http.HandleFunc("/api/user/renew", authMiddleware(renewUser))
 	http.HandleFunc("/api/users", authMiddleware(listUsers))
+	http.HandleFunc("/api/online", authMiddleware(listOnlineUsers))
 	http.HandleFunc("/api/info", authMiddleware(getSystemInfo))
 	http.HandleFunc("/api/cron/expire", authMiddleware(checkExpiration))
 	http.HandleFunc("/api/cron/cleanup", authMiddleware(cleanupExpired))
@@ -500,6 +506,21 @@ func listUsers(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, true, "Daftar user", userList)
 }
 
+func listOnlineUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, false, "Method not allowed", nil)
+		return
+	}
+
+	onlineUsers, err := collectOnlineUsers()
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, false, "Gagal membaca data online", nil)
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, true, "Daftar akun online", onlineUsers)
+}
+
 func getSystemInfo(w http.ResponseWriter, r *http.Request) {
 	cmd := exec.Command("curl", "-s", "ifconfig.me")
 	ipPub, _ := cmd.Output()
@@ -884,4 +905,230 @@ func validateIpLimit(limit int) error {
 		return fmt.Errorf("IP limit harus antara 1-2")
 	}
 	return nil
+}
+
+type onlineLogEntry struct {
+	User     string
+	IP       string
+	LastSeen time.Time
+}
+
+type OnlineAccount struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	IP       string `json:"ip"`
+	LastSeen string `json:"last_seen"`
+}
+
+var logUserRegexes = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\buser(?:name)?\s*[:=]\s*([a-zA-Z0-9._-]+)`),
+	regexp.MustCompile(`(?i)\bpass(?:word)?\s*[:=]\s*([a-zA-Z0-9._-]+)`),
+	regexp.MustCompile(`(?i)\baccount\s*[:=]\s*([a-zA-Z0-9._-]+)`),
+}
+
+var logIPRegexes = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\b(?:ip|addr|remote)\s*[:=]\s*(\d+\.\d+\.\d+\.\d+)`),
+	regexp.MustCompile(`\bfrom\s+(\d+\.\d+\.\d+\.\d+)`),
+}
+
+var logTimeRegex = regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}`)
+
+func collectOnlineUsers() ([]OnlineAccount, error) {
+	users, err := loadUsers()
+	if err != nil {
+		return nil, err
+	}
+
+	userByPassword := make(map[string]UserStore)
+	userByUsername := make(map[string]UserStore)
+	today := time.Now().Format("2006-01-02")
+
+	for _, u := range users {
+		normalized := normalizeStoredUser(u)
+		if normalized.Status == "locked" || normalized.Expired < today {
+			continue
+		}
+		userByPassword[normalized.Password] = normalized
+		userByUsername[normalized.Username] = normalized
+	}
+
+	logEntries, err := readOnlineLogEntries()
+	if err != nil {
+		return nil, err
+	}
+	if len(logEntries) == 0 {
+		return []OnlineAccount{}, nil
+	}
+
+	port := readServerPort()
+	conntrackIPs, _ := loadConntrackIPs(port)
+	cutoff := time.Now().Add(-10 * time.Minute)
+
+	selected := make(map[string]onlineLogEntry)
+	for _, entry := range logEntries {
+		if len(conntrackIPs) > 0 {
+			if !conntrackIPs[entry.IP] {
+				continue
+			}
+		} else if entry.LastSeen.Before(cutoff) {
+			continue
+		}
+
+		key := entry.User + "|" + entry.IP
+		if existing, ok := selected[key]; ok {
+			if entry.LastSeen.After(existing.LastSeen) {
+				selected[key] = entry
+			}
+		} else {
+			selected[key] = entry
+		}
+	}
+
+	online := make([]OnlineAccount, 0, len(selected))
+	for _, entry := range selected {
+		username := entry.User
+		password := entry.User
+		if user, ok := userByPassword[entry.User]; ok {
+			username = user.Username
+			password = user.Password
+		} else if user, ok := userByUsername[entry.User]; ok {
+			username = user.Username
+			password = user.Password
+		}
+		online = append(online, OnlineAccount{
+			Username: username,
+			Password: password,
+			IP:       entry.IP,
+			LastSeen: entry.LastSeen.Format(time.RFC3339),
+		})
+	}
+
+	sort.Slice(online, func(i, j int) bool {
+		if online[i].Username == online[j].Username {
+			return online[i].IP < online[j].IP
+		}
+		return online[i].Username < online[j].Username
+	})
+
+	return online, nil
+}
+
+func readOnlineLogEntries() ([]onlineLogEntry, error) {
+	lines := []string{}
+	logFiles := []string{LogFile, LogFile + ".1"}
+	for _, path := range logFiles {
+		fileLines, err := readLogFileLines(path)
+		if err == nil && len(fileLines) > 0 {
+			lines = append(lines, fileLines...)
+		}
+	}
+
+	if len(lines) == 0 {
+		output, err := exec.Command("journalctl", "-u", "zivpn", "-n", "2000", "--output=short-iso").Output()
+		if err == nil {
+			lines = strings.Split(string(output), "\n")
+		}
+	}
+
+	if len(lines) == 0 {
+		return []onlineLogEntry{}, nil
+	}
+
+	entries := make(map[string]onlineLogEntry)
+	for _, line := range lines {
+		user := extractLogValue(line, logUserRegexes)
+		ip := extractLogValue(line, logIPRegexes)
+		if user == "" || ip == "" {
+			continue
+		}
+		lastSeen := parseLogTimestamp(line)
+		if lastSeen.IsZero() {
+			lastSeen = time.Now()
+		}
+		key := user + "|" + ip
+		if existing, ok := entries[key]; ok {
+			if lastSeen.After(existing.LastSeen) {
+				entries[key] = onlineLogEntry{User: user, IP: ip, LastSeen: lastSeen}
+			}
+		} else {
+			entries[key] = onlineLogEntry{User: user, IP: ip, LastSeen: lastSeen}
+		}
+	}
+
+	collection := make([]onlineLogEntry, 0, len(entries))
+	for _, entry := range entries {
+		collection = append(collection, entry)
+	}
+	return collection, nil
+}
+
+func readLogFileLines(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	lines := []string{}
+	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return lines, nil
+}
+
+func extractLogValue(line string, patterns []*regexp.Regexp) string {
+	for _, pattern := range patterns {
+		if match := pattern.FindStringSubmatch(line); len(match) > 1 {
+			return strings.TrimSpace(match[1])
+		}
+	}
+	return ""
+}
+
+func parseLogTimestamp(line string) time.Time {
+	match := logTimeRegex.FindString(line)
+	if match == "" {
+		return time.Time{}
+	}
+	parsed, err := time.Parse("2006-01-02 15:04:05", match)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
+}
+
+func readServerPort() string {
+	if portBytes, err := ioutil.ReadFile(PortFile); err == nil {
+		port := strings.TrimSpace(string(portBytes))
+		if port != "" {
+			return port
+		}
+	}
+	return "5667"
+}
+
+func loadConntrackIPs(port string) (map[string]bool, error) {
+	ips := make(map[string]bool)
+	if port == "" {
+		port = "5667"
+	}
+
+	output, err := exec.Command("conntrack", "-L", "-p", "udp", "--dport", port).Output()
+	if err != nil {
+		return ips, err
+	}
+
+	re := regexp.MustCompile(`\bsrc=(\d+\.\d+\.\d+\.\d+)`)
+	for _, match := range re.FindAllStringSubmatch(string(output), -1) {
+		if len(match) > 1 {
+			ips[match[1]] = true
+		}
+	}
+	return ips, nil
 }

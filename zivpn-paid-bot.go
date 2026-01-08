@@ -61,6 +61,13 @@ type UserData struct {
 	IpLimit   int      `json:"ip_limit"`
 }
 
+type OnlineAccount struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	IP       string `json:"ip"`
+	LastSeen string `json:"last_seen"`
+}
+
 // ==========================================
 // Global State
 // ==========================================
@@ -161,6 +168,10 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 	case query.Data == "menu_admin":
 		if userID == config.AdminID {
 			showBackupRestoreMenu(bot, chatID)
+		}
+	case query.Data == "menu_online":
+		if userID == config.AdminID {
+			listOnlineUsers(bot, chatID)
 		}
 	case query.Data == "menu_backup_action":
 		if userID == config.AdminID {
@@ -609,10 +620,50 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 	}
 }
 
+func listOnlineUsers(bot *tgbotapi.BotAPI, chatID int64) {
+	res, err := apiCall("GET", "/online", nil)
+	if err != nil {
+		replyError(bot, chatID, "Error API: "+err.Error())
+		return
+	}
+
+	if res["success"] == true {
+		var entries []OnlineAccount
+		dataBytes, _ := json.Marshal(res["data"])
+		json.Unmarshal(dataBytes, &entries)
+		if len(entries) == 0 {
+			sendMessage(bot, chatID, "📡 Tidak ada akun online.")
+			return
+		}
+
+		msg := "📡 *Akun Online*\n"
+		for _, entry := range entries {
+			name := entry.Username
+			if name == "" {
+				name = entry.Password
+			}
+			lastSeen := entry.LastSeen
+			if parsed, err := time.Parse(time.RFC3339, entry.LastSeen); err == nil {
+				lastSeen = parsed.Format("02-01-2006 15:04:05")
+			}
+			msg += fmt.Sprintf("\n• `%s` (%s) - %s", name, entry.IP, lastSeen)
+		}
+
+		reply := tgbotapi.NewMessage(chatID, msg)
+		reply.ParseMode = "Markdown"
+		sendAndTrack(bot, reply)
+	} else {
+		replyError(bot, chatID, "Gagal mengambil data online.")
+	}
+}
+
 func showBackupRestoreMenu(bot *tgbotapi.BotAPI, chatID int64) {
 	msg := tgbotapi.NewMessage(chatID, "🛠️ *Admin Panel*\nSilakan pilih menu:")
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📡 Akun Online", "menu_online"),
+		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("⬇️ Backup Data", "menu_backup_action"),
 			tgbotapi.NewInlineKeyboardButtonData("⬆️ Restore Data", "menu_restore_action"),
