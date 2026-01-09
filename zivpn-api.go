@@ -1254,15 +1254,19 @@ type OnlineAccount struct {
 	LastSeen string `json:"last_seen"`
 }
 
+// Expected log format tokens include user/account and ip fields like "user=", "account=", "ip=".
 var logUserRegexes = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)\buser(?:name)?\s*[:=]\s*([a-zA-Z0-9._-]+)`),
-	regexp.MustCompile(`(?i)\bpass(?:word)?\s*[:=]\s*([a-zA-Z0-9._-]+)`),
-	regexp.MustCompile(`(?i)\baccount\s*[:=]\s*([a-zA-Z0-9._-]+)`),
+	regexp.MustCompile(`(?i)\buser(?:name)?\s*[:=]\s*"?([a-zA-Z0-9._-]+)"?`),
+	regexp.MustCompile(`(?i)\baccount\s*[:=]\s*"?([a-zA-Z0-9._-]+)"?`),
+	regexp.MustCompile(`(?i)\bpass(?:word)?\s*[:=]\s*"?([a-zA-Z0-9._-]+)"?`),
+	regexp.MustCompile(`(?i)\busr\s*[:=]\s*"?([a-zA-Z0-9._-]+)"?`),
 }
 
+// Expected log format tokens include IP fields like "ip=", "src=", "remote=", or "raddr=".
 var logIPRegexes = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)\b(?:ip|addr|remote)\s*[:=]\s*(\d+\.\d+\.\d+\.\d+)`),
+	regexp.MustCompile(`(?i)\b(?:ip|addr|remote|src|raddr|peer)\s*[:=]\s*(\d+\.\d+\.\d+\.\d+)`),
 	regexp.MustCompile(`\bfrom\s+(\d+\.\d+\.\d+\.\d+)`),
+	regexp.MustCompile(`\b(\d+\.\d+\.\d+\.\d+):\d+\b`),
 }
 
 var logTimeRegex = regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}`)
@@ -1295,16 +1299,18 @@ func collectOnlineUsers() ([]OnlineAccount, error) {
 	}
 
 	port := readServerPort()
-	conntrackIPs, _ := loadConntrackIPs(port)
+	conntrackIPs, conntrackErr := loadConntrackIPs(port)
+	conntrackAvailable := conntrackErr == nil
 	cutoff := time.Now().Add(-10 * time.Minute)
 
 	selected := make(map[string]onlineLogEntry)
 	for _, entry := range logEntries {
+		// If conntrack is available but empty, fall back to log-derived entries instead of filtering them out.
 		if len(conntrackIPs) > 0 {
 			if !conntrackIPs[entry.IP] {
 				continue
 			}
-		} else if entry.LastSeen.Before(cutoff) {
+		} else if !conntrackAvailable && entry.LastSeen.Before(cutoff) {
 			continue
 		}
 
