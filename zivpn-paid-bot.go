@@ -1211,6 +1211,199 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 	}
 }
 
+type DailyStats struct {
+	Interface   string
+	Unit        string
+	DisplayUnit string
+	TotalRx     int64
+	TotalTx     int64
+	Total       int64
+	Days        []DailyStat
+	HasData     bool
+}
+
+type DailyStat struct {
+	Date  string
+	Rx    int64
+	Tx    int64
+	Total int64
+}
+
+type vnstatPayload struct {
+	Unit       string            `json:"unit"`
+	Interfaces []vnstatInterface `json:"interfaces"`
+}
+
+type vnstatInterface struct {
+	Name    string        `json:"name"`
+	Traffic vnstatTraffic `json:"traffic"`
+}
+
+type vnstatTraffic struct {
+	Unit  string        `json:"unit"`
+	Total vnstatValue   `json:"total"`
+	Days  []vnstatDay   `json:"days"`
+	Month []interface{} `json:"month"`
+}
+
+type vnstatValue struct {
+	Rx int64 `json:"rx"`
+	Tx int64 `json:"tx"`
+}
+
+type vnstatDay struct {
+	Date vnstatDate `json:"date"`
+	Rx   int64      `json:"rx"`
+	Tx   int64      `json:"tx"`
+}
+
+type vnstatDate struct {
+	Year  int `json:"year"`
+	Month int `json:"month"`
+	Day   int `json:"day"`
+}
+
+func showDailyStats(bot *tgbotapi.BotAPI, chatID int64) {
+	stats, err := readDailyStats()
+	if err != nil {
+		replyError(bot, chatID, "Gagal membaca statistik harian: "+err.Error())
+		return
+	}
+
+	if stats == nil || !stats.HasData {
+		sendMessage(bot, chatID, "📊 vnstat belum memiliki data.")
+		return
+	}
+
+	unitLine := stats.DisplayUnit
+	if unitLine == "" {
+		unitLine = stats.Unit
+	}
+	if unitLine == "" {
+		unitLine = "bytes"
+	}
+	displayUnit := unitLine
+	if stats.Unit != "" && stats.DisplayUnit != "" && stats.DisplayUnit != stats.Unit {
+		displayUnit = fmt.Sprintf("%s (dari %s)", stats.DisplayUnit, stats.Unit)
+	}
+
+	msg := fmt.Sprintf("📊 *Statistik Harian*\n• Interface : `%s`\n• Unit      : %s\n• Total RX  : %d %s\n• Total TX  : %d %s\n• Total     : %d %s\n",
+		stats.Interface,
+		displayUnit,
+		stats.TotalRx, unitLine,
+		stats.TotalTx, unitLine,
+		stats.Total, unitLine,
+	)
+
+	if len(stats.Days) > 0 {
+		msg += "\n*Rincian Harian*\n"
+		for _, day := range stats.Days {
+			msg += fmt.Sprintf("• %s: RX %d %s, TX %d %s, Total %d %s\n",
+				day.Date,
+				day.Rx, unitLine,
+				day.Tx, unitLine,
+				day.Total, unitLine,
+			)
+		}
+	}
+
+	reply := tgbotapi.NewMessage(chatID, msg)
+	reply.ParseMode = "Markdown"
+	sendAndTrack(bot, reply)
+}
+
+func readDailyStats() (*DailyStats, error) {
+	output, err := exec.Command("vnstat", "--json").CombinedOutput()
+	if err != nil {
+		errDetail := strings.TrimSpace(string(output))
+		if errDetail != "" {
+			return nil, fmt.Errorf("vnstat gagal: %w (%s)", err, errDetail)
+		}
+		return nil, fmt.Errorf("vnstat gagal: %w", err)
+	}
+
+	var payload vnstatPayload
+	if err := json.Unmarshal(output, &payload); err != nil {
+		return nil, err
+	}
+
+	if len(payload.Interfaces) == 0 {
+		return &DailyStats{HasData: false}, nil
+	}
+
+	defaultStats := buildDailyStats(payload.Interfaces[0], payload.Unit)
+	if defaultStats.Total == 0 {
+		var best *DailyStats
+		for _, iface := range payload.Interfaces {
+			candidate := buildDailyStats(iface, payload.Unit)
+			if candidate.Total > 0 && (best == nil || candidate.Total > best.Total) {
+				tmp := candidate
+				best = &tmp
+			}
+		}
+		if best == nil {
+			return &DailyStats{HasData: false}, nil
+		}
+		best.HasData = true
+		return best, nil
+	}
+
+	defaultStats.HasData = true
+	return &defaultStats, nil
+}
+
+func buildDailyStats(iface vnstatInterface, defaultUnit string) DailyStats {
+	unit := defaultUnit
+	if iface.Traffic.Unit != "" {
+		unit = iface.Traffic.Unit
+	}
+
+	multiplier, displayUnit := unitMultiplier(unit)
+	stats := DailyStats{
+		Interface:   iface.Name,
+		Unit:        unit,
+		DisplayUnit: displayUnit,
+	}
+
+	stats.TotalRx = iface.Traffic.Total.Rx * multiplier
+	stats.TotalTx = iface.Traffic.Total.Tx * multiplier
+	stats.Total = stats.TotalRx + stats.TotalTx
+
+	for _, day := range iface.Traffic.Days {
+		rx := day.Rx * multiplier
+		tx := day.Tx * multiplier
+		stats.Days = append(stats.Days, DailyStat{
+			Date:  formatVnstatDate(day.Date),
+			Rx:    rx,
+			Tx:    tx,
+			Total: rx + tx,
+		})
+	}
+
+	return stats
+}
+
+func unitMultiplier(unit string) (int64, string) {
+	switch unit {
+	case "", "B", "bytes", "Bytes":
+		return 1, "bytes"
+	case "KiB":
+		return 1024, "bytes"
+	case "MiB":
+		return 1024 * 1024, "bytes"
+	case "GiB":
+		return 1024 * 1024 * 1024, "bytes"
+	case "TiB":
+		return 1024 * 1024 * 1024 * 1024, "bytes"
+	default:
+		return 1, unit
+	}
+}
+
+func formatVnstatDate(date vnstatDate) string {
+	return fmt.Sprintf("%04d-%02d-%02d", date.Year, date.Month, date.Day)
+}
+
 func getInfoValue(data map[string]interface{}, key, fallback string) string {
 	if value, ok := data[key]; ok && value != nil {
 		if str, ok := value.(string); ok && str != "" {
