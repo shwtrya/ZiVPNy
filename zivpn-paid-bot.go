@@ -212,25 +212,25 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 			callbackText = "Akses Ditolak"
 		}
 	case query.Data == "menu_admins":
-		if isAdmin(config, userID) {
+		if isOwner(config, userID) {
 			showAdminMenu(bot, chatID)
 		} else {
 			callbackText = "Akses Ditolak"
 		}
 	case query.Data == "menu_admin_add":
-		if isAdmin(config, userID) {
+		if isOwner(config, userID) {
 			startAddAdmin(bot, chatID, userID)
 		} else {
 			callbackText = "Akses Ditolak"
 		}
 	case query.Data == "menu_admin_remove":
-		if isAdmin(config, userID) {
+		if isOwner(config, userID) {
 			startRemoveAdmin(bot, chatID, userID)
 		} else {
 			callbackText = "Akses Ditolak"
 		}
 	case query.Data == "menu_admins_list":
-		if isAdmin(config, userID) {
+		if isOwner(config, userID) {
 			listAdmins(bot, chatID, config)
 		} else {
 			callbackText = "Akses Ditolak"
@@ -242,13 +242,13 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 
 	case query.Data == "menu_admin":
 		if isAdmin(config, userID) {
-			showBackupRestoreMenu(bot, chatID)
+			showBackupRestoreMenu(bot, chatID, config, userID)
 		} else {
 			callbackText = "Akses Ditolak"
 		}
 	case query.Data == "back_admin_panel":
 		if isAdmin(config, userID) {
-			showBackupRestoreMenu(bot, chatID)
+			showBackupRestoreMenu(bot, chatID, config, userID)
 		} else {
 			showMainMenu(bot, chatID, config)
 		}
@@ -1310,10 +1310,10 @@ func listOnlineUsers(bot *tgbotapi.BotAPI, chatID int64) {
 	}
 }
 
-func showBackupRestoreMenu(bot *tgbotapi.BotAPI, chatID int64) {
+func showBackupRestoreMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig, userID int64) {
 	msg := tgbotapi.NewMessage(chatID, "🛠️ *Admin Panel*\nSilakan pilih menu:")
 	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+	rows := [][]tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📡 Akun Online", "menu_online"),
 		),
@@ -1329,9 +1329,13 @@ func showBackupRestoreMenu(bot *tgbotapi.BotAPI, chatID int64) {
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📋 Admin List Akun", "menu_admin_list"),
 		),
-		tgbotapi.NewInlineKeyboardRow(
+	}
+	if isOwner(config, userID) {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("👥 Kelola Admin", "menu_admins"),
-		),
+		))
+	}
+	rows = append(rows,
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("⬇️ Backup Data", "menu_backup_action"),
 			tgbotapi.NewInlineKeyboardButtonData("⬆️ Restore Data", "menu_restore_action"),
@@ -1340,6 +1344,7 @@ func showBackupRestoreMenu(bot *tgbotapi.BotAPI, chatID int64) {
 			tgbotapi.NewInlineKeyboardButtonData("❌ Kembali", "cancel"),
 		),
 	)
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 	sendAndTrack(bot, msg)
 }
 
@@ -1574,6 +1579,20 @@ func isAdmin(config *BotConfig, userID int64) bool {
 	return userID == config.AdminID
 }
 
+func isOwner(config *BotConfig, userID int64) bool {
+	if config == nil {
+		return false
+	}
+	if userID == config.AdminID {
+		return true
+	}
+	if config.AdminRoles == nil {
+		return false
+	}
+	role, ok := config.AdminRoles[strconv.FormatInt(userID, 10)]
+	return ok && isOwnerRole(role)
+}
+
 func hasAdminRole(config *BotConfig, userID int64) bool {
 	if config.AdminRoles == nil {
 		return false
@@ -1586,6 +1605,16 @@ func isAdminRole(role string) bool {
 	role = strings.ToLower(strings.TrimSpace(role))
 	switch role {
 	case "", "admin", "owner", "superadmin":
+		return true
+	default:
+		return false
+	}
+}
+
+func isOwnerRole(role string) bool {
+	role = strings.ToLower(strings.TrimSpace(role))
+	switch role {
+	case "owner", "superadmin":
 		return true
 	default:
 		return false
