@@ -246,7 +246,8 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 		if isAdmin(config, userID) {
 			showBackupRestoreMenu(bot, chatID, config, userID)
 		} else {
-			callbackText = "Akses Ditolak"
+			callbackText = "Anda tidak memiliki hak untuk mengakses Admin Panel."
+			replyError(bot, chatID, "Akses Admin Panel ditolak: Anda bukan admin.")
 		}
 	case query.Data == "back_admin_panel":
 		if isAdmin(config, userID) {
@@ -1976,7 +1977,7 @@ func isAdmin(config *BotConfig, userID int64) bool {
 	if config == nil {
 		return false
 	}
-	if hasAdminRole(config, userID) {
+	if userID == config.AdminID {
 		return true
 	}
 	for _, adminID := range config.AdminIDs {
@@ -1984,7 +1985,7 @@ func isAdmin(config *BotConfig, userID int64) bool {
 			return true
 		}
 	}
-	return userID == config.AdminID
+	return hasAdminRole(config, userID)
 }
 
 func isOwner(config *BotConfig, userID int64) bool {
