@@ -323,6 +323,17 @@ class ZiVpnService : VpnService() {
         while (_vpnState.value == VpnState.CONNECTED) {
             delay(3000)
 
+            // Check if tun2socks is still running
+            if (tun2socksProcess?.isAlive != true) {
+                val exitCode = runCatching { tun2socksProcess?.exitValue() }.getOrNull()
+                Log.e(TAG, "tun2socks process died (exit code=${exitCode ?: "unknown"})")
+                withContext(Dispatchers.Main) {
+                    _vpnState.value = VpnState.ERROR
+                    _connectionInfo.value = "Tunnel stopped"
+                }
+                break
+            }
+
             // Check if hysteria is still running
             if (hysteriaProcess?.isAlive != true) {
                 Log.w(TAG, "Hysteria process died")
