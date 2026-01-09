@@ -599,6 +599,9 @@ func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, password st
 
 	if res["success"] == true {
 		data := res["data"].(map[string]interface{})
+		if value, ok := data["username"]; !ok || value == nil || fmt.Sprintf("%v", value) == "" {
+			data["username"] = username
+		}
 		sendAccountInfo(bot, chatID, data, config)
 	} else {
 		replyError(bot, chatID, fmt.Sprintf("Gagal membuat akun: %s", res["message"]))
@@ -790,6 +793,15 @@ func sendAccountInfo(bot *tgbotapi.BotAPI, chatID int64, data map[string]interfa
 	}
 
 	protocolInfo := formatProtocols(data)
+	username := ""
+	if value, ok := data["username"]; ok && value != nil {
+		username = strings.TrimSpace(fmt.Sprintf("%v", value))
+	}
+	if username == "" {
+		if value, ok := data["password"]; ok && value != nil {
+			username = strings.TrimSpace(fmt.Sprintf("%v", value))
+		}
+	}
 	ipLimit := "-"
 	if value, ok := data["ip_limit"]; ok && value != nil {
 		ipLimit = fmt.Sprintf("%v", value)
@@ -798,8 +810,8 @@ func sendAccountInfo(bot *tgbotapi.BotAPI, chatID int64, data map[string]interfa
 	if stockInfo, err := getStockInfo(); err == nil {
 		stockLine = fmt.Sprintf("• Stok    : %d/%d (Sisa %d)", stockInfo.Used, stockInfo.Max, stockInfo.Available)
 	}
-	msg := fmt.Sprintf("```\n✅ PREMIUM ACCOUNT\n━━━━━━━━━━━━━━━━━━━━━\n🔐 AKUN\n• Password : %s\n• Expired  : %s\n• IP Limit : %s\n🧩 PROTOKOL\n• Protocols: %s\n🌐 SERVER\n• Domain   : %s\n• City     : %s\n• ISP      : %s\n📦 STOK\n%s\n━━━━━━━━━━━━━━━━━━━━━\n```\nTerima kasih telah berlangganan!",
-		data["password"], data["expired"], ipLimit, protocolInfo, domain, ipInfo.City, ipInfo.Isp, stockLine,
+	msg := fmt.Sprintf("```\n✅ PREMIUM ACCOUNT\n━━━━━━━━━━━━━━━━━━━━━\n🔐 AKUN\n• Username : %s\n• Password : %s\n• Expired  : %s\n• IP Limit : %s\n🧩 PROTOKOL\n• Protocols: %s\n🌐 SERVER\n• Domain   : %s\n• City     : %s\n• ISP      : %s\n📦 STOK\n%s\n━━━━━━━━━━━━━━━━━━━━━\n```\nTerima kasih telah berlangganan!",
+		username, data["password"], data["expired"], ipLimit, protocolInfo, domain, ipInfo.City, ipInfo.Isp, stockLine,
 	)
 
 	reply := tgbotapi.NewMessage(chatID, msg)
