@@ -586,7 +586,7 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 			domainStatus = "Domain OK"
 		}
 
-		msg := fmt.Sprintf("```\n🖥️ INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n🌐 JARINGAN\n• Domain        : %s\n• Domain Status : %s\n• IP Public     : %s\n• IP Private    : %s\n• Port          : %s\n⚙️ SISTEM\n• Service   : %s\n• CPU       : %s\n• RAM       : %s\n• Disk      : %s\n• Uptime    : %s\n• Load Avg  : %s\n• Kernel    : %s\n• Version   : %s\n📍 LOKASI\n• City      : %s\n• ISP       : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("```\n🖥️ INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n🌐 JARINGAN\n• Domain        : %s\n• Domain Status : %s\n• IP Public     : %s\n• IP Private    : %s\n• Port          : %s\n⚙️ SISTEM\n• Service   : %s\n• CPU       : %s\n• RAM       : %s\n• Disk      : %s\n• Uptime    : %s\n• Load Avg  : %s\n• Kernel    : %s\n• Version   : %s\n📍 LOKASI\n• City      : %s\n• ISP       : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
 			domain,
 			domainStatus,
 			getInfoValue(data, "public_ip", "-"),
@@ -602,12 +602,10 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 			getInfoValue(data, "zivpn_version", "-"),
 			ipInfo.City,
 			ipInfo.Isp,
-		)
-
-		reply := tgbotapi.NewMessage(chatID, msg)
-		reply.ParseMode = "Markdown"
+		))
+		msg.ParseMode = "Markdown"
 		deleteLastMessage(bot, chatID)
-		bot.Send(reply)
+		bot.Send(msg)
 		showMainMenu(bot, chatID, config)
 	} else {
 		replyError(bot, chatID, "Gagal mengambil info.")
@@ -653,11 +651,10 @@ func cleanupExpiredUsers(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) 
 				for _, u := range deletedUsers {
 					userList += fmt.Sprintf("\n• `%s`", u.(string))
 				}
-				msg := fmt.Sprintf("✅ Berhasil menghapus %d akun expired:%s", count, userList)
-				reply := tgbotapi.NewMessage(chatID, msg)
-				reply.ParseMode = "Markdown"
+				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Berhasil menghapus %d akun expired:%s", count, userList))
+				msg.ParseMode = "Markdown"
 				deleteLastMessage(bot, chatID)
-				bot.Send(reply)
+				bot.Send(msg)
 			} else {
 				sendMessage(bot, chatID, "✅ Tidak ada akun expired yang perlu dihapus.")
 			}
