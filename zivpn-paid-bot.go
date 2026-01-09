@@ -92,6 +92,7 @@ type OnlineAccount struct {
 var userStates = make(map[int64]string)
 var tempUserData = make(map[int64]map[string]string)
 var lastMessageIDs = make(map[int64]int)
+var lastAccountInfos = make(map[int64]string)
 var mutex = &sync.Mutex{}
 
 // ==========================================
@@ -288,6 +289,17 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 		} else {
 			callbackText = "Akses Ditolak"
 		}
+	case query.Data == "copy_account":
+		mutex.Lock()
+		accountInfo := lastAccountInfos[chatID]
+		mutex.Unlock()
+		if accountInfo == "" {
+			callbackText = "Kode akun tidak ditemukan."
+			break
+		}
+		accountMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("```\n%s\n```", accountInfo))
+		accountMsg.ParseMode = "Markdown"
+		bot.Send(accountMsg)
 	}
 
 	bot.Request(tgbotapi.NewCallback(query.ID, callbackText))
@@ -810,12 +822,23 @@ func sendAccountInfo(bot *tgbotapi.BotAPI, chatID int64, data map[string]interfa
 	if stockInfo, err := getStockInfo(); err == nil {
 		stockLine = fmt.Sprintf("• Stok    : %d/%d (Sisa %d)", stockInfo.Used, stockInfo.Max, stockInfo.Available)
 	}
+	accountInfo := fmt.Sprintf("Username: %s\nPassword: %s\nExpired: %s\nIP Limit: %s\nProtocols: %s\nDomain: %s",
+		username, data["password"], data["expired"], ipLimit, protocolInfo, domain,
+	)
+	mutex.Lock()
+	lastAccountInfos[chatID] = accountInfo
+	mutex.Unlock()
 	msg := fmt.Sprintf("```\n✅ PREMIUM ACCOUNT\n━━━━━━━━━━━━━━━━━━━━━\n🔐 AKUN\n• Username : %s\n• Password : %s\n• Expired  : %s\n• IP Limit : %s\n🧩 PROTOKOL\n• Protocols: %s\n🌐 SERVER\n• Domain   : %s\n• City     : %s\n• ISP      : %s\n📦 STOK\n%s\n━━━━━━━━━━━━━━━━━━━━━\n```\nTerima kasih telah berlangganan!",
 		username, data["password"], data["expired"], ipLimit, protocolInfo, domain, ipInfo.City, ipInfo.Isp, stockLine,
 	)
 
 	reply := tgbotapi.NewMessage(chatID, msg)
 	reply.ParseMode = "Markdown"
+	reply.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📋 Salin Kode", "copy_account"),
+		),
+	)
 	deleteLastMessage(bot, chatID)
 	bot.Send(reply)
 	showMainMenu(bot, chatID, config)
