@@ -1317,18 +1317,18 @@ func showBackupRestoreMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📡 Akun Online", "menu_online"),
 		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("👑 Admin Create Akun", "menu_admin_create"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🗑️ Admin Delete Akun", "menu_admin_delete"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Admin Renew Akun", "menu_admin_renew"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📋 Admin List Akun", "menu_admin_list"),
-		),
+	}
+	if isAdmin(config, userID) {
+		rows = append(rows,
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("👑 Admin Create Akun", "menu_admin_create"),
+				tgbotapi.NewInlineKeyboardButtonData("🗑️ Admin Delete Akun", "menu_admin_delete"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🔄 Admin Renew Akun", "menu_admin_renew"),
+				tgbotapi.NewInlineKeyboardButtonData("📋 Admin List Akun", "menu_admin_list"),
+			),
+		)
 	}
 	if isOwner(config, userID) {
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
