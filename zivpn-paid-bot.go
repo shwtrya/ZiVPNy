@@ -1217,7 +1217,7 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 			domainStatus = "Domain OK"
 		}
 
-		msg := fmt.Sprintf("```\n🖥️ INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n🌐 JARINGAN\n• Domain        : %s\n• Domain Status : %s\n• IP Public     : %s\n• IP Private    : %s\n• Port          : %s\n⚙️ SISTEM\n• Service   : %s\n• CPU       : %s\n• RAM       : %s\n• Disk      : %s\n• Uptime    : %s\n• Load Avg  : %s\n• Kernel    : %s\n• Version   : %s\n📍 LOKASI\n• City      : %s\n• ISP       : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
+		msg := tgbotapi.NewMessage(chatID, "```\n🖥️ INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n🌐 JARINGAN\n• Domain        : %s\n• Domain Status : %s\n• IP Public     : %s\n• IP Private    : %s\n• Port          : %s\n⚙️ SISTEM\n• Service   : %s\n• CPU       : %s\n• RAM       : %s\n• Disk      : %s\n• Uptime    : %s\n• Load Avg  : %s\n• Kernel    : %s\n• Version   : %s\n📍 LOKASI\n• City      : %s\n• ISP       : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
 			domain,
 			domainStatus,
 			getInfoValue(data, "public_ip", "-"),
@@ -1239,7 +1239,7 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 		reply.ParseMode = "Markdown"
 		reply.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("⬅️ Kembali", "back_admin_panel"),
+				tgbotapi.NewInlineKeyboardButtonData("⬅️ Kembali", "cancel"),
 			),
 		)
 		deleteLastMessage(bot, chatID)
