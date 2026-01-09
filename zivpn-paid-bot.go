@@ -764,9 +764,6 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📂 AKUN", "section_akun"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🛒 Beli Akun Premium", "menu_create"),
 		),
 	)
@@ -774,25 +771,7 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 	// Add Admin Panel for Admin
 	if isAdmin(config, chatID) {
 		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🖥️ SISTEM", "section_sistem"),
-		))
-		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("👑 Admin Create Akun", "menu_admin_create"),
-		))
-		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🗑️ Admin Delete Akun", "menu_admin_delete"),
-		))
-		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Admin Renew Akun", "menu_admin_renew"),
-		))
-		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📋 Admin List Akun", "menu_admin_list"),
-		))
-		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📊 System Info", "menu_info"),
-		))
-		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🛠️ ADMIN", "section_admin"),
 		))
 		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🛠️ Admin Panel", "menu_admin"),
@@ -1270,6 +1249,18 @@ func showBackupRestoreMenu(bot *tgbotapi.BotAPI, chatID int64) {
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📡 Akun Online", "menu_online"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("👑 Admin Create Akun", "menu_admin_create"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🗑️ Admin Delete Akun", "menu_admin_delete"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Admin Renew Akun", "menu_admin_renew"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📋 Admin List Akun", "menu_admin_list"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("👥 Kelola Admin", "menu_admins"),
