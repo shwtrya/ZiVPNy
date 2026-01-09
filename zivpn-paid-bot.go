@@ -985,6 +985,44 @@ func applyTorrentRules() error {
 	return nil
 }
 
+func applyHighPerformance() (string, error) {
+	const sysctlConfigPath = "/etc/sysctl.d/99-zivpn-high-performance.conf"
+	sysctlConfig := strings.TrimSpace(`
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.ipv4.ip_forward=1
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.core.rmem_default=16777216
+net.core.wmem_default=16777216
+net.core.optmem_max=65536
+net.core.somaxconn=65535
+net.core.netdev_max_backlog=16384
+net.core.netdev_budget=600
+net.core.rps_sock_flow_entries=65536
+net.ipv4.tcp_rmem=4096 87380 16777216
+net.ipv4.tcp_wmem=4096 65536 16777216
+net.ipv4.tcp_fastopen=3
+fs.file-max=1000000
+net.ipv4.udp_mem=262144 524288 1048576
+net.ipv4.udp_rmem_min=16384
+net.ipv4.udp_wmem_min=16384
+`)
+	if err := os.WriteFile(sysctlConfigPath, []byte(sysctlConfig+"\n"), 0644); err != nil {
+		return "", err
+	}
+
+	if output, err := exec.Command("sysctl", "--system").CombinedOutput(); err != nil {
+		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	statusBytes, err := os.ReadFile("/proc/sys/net/ipv4/tcp_congestion_control")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(statusBytes)), nil
+}
+
 func cancelOperation(bot *tgbotapi.BotAPI, chatID int64, userID int64, config *BotConfig) {
 	if state, ok := userStates[userID]; ok && state == "torrent_custom_rules" {
 		delete(userStates, userID)
