@@ -272,6 +272,42 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 		} else {
 			callbackText = "Akses Ditolak"
 		}
+	case query.Data == "menu_perf_high":
+		if isAdmin(config, userID) {
+			status, err := applyHighPerformance()
+			if err != nil {
+				replyError(bot, chatID, "Gagal menerapkan High Performance: "+err.Error())
+			} else {
+				sendMessage(bot, chatID, "✅ "+status)
+			}
+			showBackupRestoreMenu(bot, chatID, config, userID)
+		} else {
+			callbackText = "Akses Ditolak"
+		}
+	case query.Data == "menu_perf_conservative":
+		if isAdmin(config, userID) {
+			status, err := applyConservativePerformance()
+			if err != nil {
+				replyError(bot, chatID, "Gagal menerapkan Conservative: "+err.Error())
+			} else {
+				sendMessage(bot, chatID, "✅ "+status)
+			}
+			showBackupRestoreMenu(bot, chatID, config, userID)
+		} else {
+			callbackText = "Akses Ditolak"
+		}
+	case query.Data == "menu_perf_revert":
+		if isAdmin(config, userID) {
+			status, err := revertPerformanceSettings()
+			if err != nil {
+				replyError(bot, chatID, "Gagal revert performance: "+err.Error())
+			} else {
+				sendMessage(bot, chatID, "♻️ "+status)
+			}
+			showBackupRestoreMenu(bot, chatID, config, userID)
+		} else {
+			callbackText = "Akses Ditolak"
+		}
 	case strings.HasPrefix(query.Data, "page_"):
 		if isAdmin(config, userID) {
 			handlePagination(bot, chatID, query.Data)
@@ -986,7 +1022,6 @@ func applyTorrentRules() error {
 }
 
 func applyHighPerformance() (string, error) {
-	const sysctlConfigPath = "/etc/sysctl.d/99-zivpn-high-performance.conf"
 	sysctlConfig := strings.TrimSpace(`
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
@@ -1008,19 +1043,101 @@ net.ipv4.udp_mem=262144 524288 1048576
 net.ipv4.udp_rmem_min=16384
 net.ipv4.udp_wmem_min=16384
 `)
+	return applyPerformancePreset("High Performance", "/etc/sysctl.d/99-zivpn-high-performance.conf", sysctlConfig)
+}
+
+func applyConservativePerformance() (string, error) {
+	sysctlConfig := strings.TrimSpace(`
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.ipv4.ip_forward=1
+net.core.rmem_max=8388608
+net.core.wmem_max=8388608
+net.core.rmem_default=262144
+net.core.wmem_default=262144
+net.core.optmem_max=65536
+net.core.somaxconn=32768
+net.core.netdev_max_backlog=8192
+net.core.netdev_budget=300
+net.core.rps_sock_flow_entries=32768
+net.ipv4.tcp_rmem=4096 87380 8388608
+net.ipv4.tcp_wmem=4096 65536 8388608
+net.ipv4.tcp_fastopen=3
+fs.file-max=500000
+net.ipv4.udp_mem=131072 262144 524288
+net.ipv4.udp_rmem_min=8192
+net.ipv4.udp_wmem_min=8192
+`)
+	return applyPerformancePreset("Conservative", "/etc/sysctl.d/99-zivpn-conservative.conf", sysctlConfig)
+}
+
+func applyPerformancePreset(label, sysctlConfigPath, sysctlConfig string) (string, error) {
+	const sysctlBackupPath = "/etc/sysctl.d/99-zivpn-performance.backup"
+	keys := []string{
+		"net.core.default_qdisc",
+		"net.ipv4.tcp_congestion_control",
+		"net.ipv4.ip_forward",
+		"net.core.rmem_max",
+		"net.core.wmem_max",
+		"net.core.rmem_default",
+		"net.core.wmem_default",
+		"net.core.optmem_max",
+		"net.core.somaxconn",
+		"net.core.netdev_max_backlog",
+		"net.core.netdev_budget",
+		"net.core.rps_sock_flow_entries",
+		"net.ipv4.tcp_rmem",
+		"net.ipv4.tcp_wmem",
+		"net.ipv4.tcp_fastopen",
+		"fs.file-max",
+		"net.ipv4.udp_mem",
+		"net.ipv4.udp_rmem_min",
+		"net.ipv4.udp_wmem_min",
+	}
+	if err := backupSysctlSettings(keys, sysctlBackupPath); err != nil {
+		return "", fmt.Errorf("gagal backup sysctl: %w", err)
+	}
 	if err := ioutil.WriteFile(sysctlConfigPath, []byte(sysctlConfig+"\n"), 0644); err != nil {
 		return "", err
 	}
-
 	if output, err := exec.Command("sysctl", "--system").CombinedOutput(); err != nil {
 		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(output)))
 	}
-
 	statusBytes, err := ioutil.ReadFile("/proc/sys/net/ipv4/tcp_congestion_control")
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(statusBytes)), nil
+	return fmt.Sprintf("%s preset aktif (tcp_congestion_control=%s)", label, strings.TrimSpace(string(statusBytes))), nil
+}
+
+func backupSysctlSettings(keys []string, backupPath string) error {
+	var builder strings.Builder
+	builder.WriteString("# ZiVPN sysctl backup - ")
+	builder.WriteString(time.Now().Format(time.RFC3339))
+	builder.WriteString("\n")
+	for _, key := range keys {
+		output, err := exec.Command("sysctl", "-n", key).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s: %v: %s", key, err, strings.TrimSpace(string(output)))
+		}
+		value := strings.TrimSpace(string(output))
+		builder.WriteString(fmt.Sprintf("%s=%s\n", key, value))
+	}
+	return ioutil.WriteFile(backupPath, []byte(builder.String()), 0644)
+}
+
+func revertPerformanceSettings() (string, error) {
+	const backupPath = "/etc/sysctl.d/99-zivpn-performance.backup"
+	if _, err := os.Stat(backupPath); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("backup sysctl tidak ditemukan di %s", backupPath)
+		}
+		return "", err
+	}
+	if output, err := exec.Command("sysctl", "--system").CombinedOutput(); err != nil {
+		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(output)))
+	}
+	return "Pengaturan sysctl dikembalikan dari backup.", nil
 }
 
 func cancelOperation(bot *tgbotapi.BotAPI, chatID int64, userID int64, config *BotConfig) {
@@ -1620,6 +1737,13 @@ func showBackupRestoreMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig
 		))
 	}
 	rows = append(rows,
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🚀 High Performance", "menu_perf_high"),
+			tgbotapi.NewInlineKeyboardButtonData("🐢 Conservative", "menu_perf_conservative"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("♻️ Revert Performance", "menu_perf_revert"),
+		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("⬇️ Backup Data", "menu_backup_action"),
 			tgbotapi.NewInlineKeyboardButtonData("⬆️ Restore Data", "menu_restore_action"),
