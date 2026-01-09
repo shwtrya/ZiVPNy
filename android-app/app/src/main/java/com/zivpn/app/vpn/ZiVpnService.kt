@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import java.io.*
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.concurrent.TimeUnit
 
 /**
  * ZiVPN Service menggunakan Hysteria2 + tun2socks
@@ -346,21 +347,30 @@ class ZiVpnService : VpnService() {
         }
     }
 
-    private fun stopProcesses() {
-        try {
-            tun2socksProcess?.destroy()
-            tun2socksProcess?.waitFor()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping tun2socks", e)
+    private suspend fun stopProcesses(timeoutMs: Long = 3000) {
+        suspend fun stopProcess(process: Process?, name: String) {
+            if (process == null) return
+            try {
+                process.destroy()
+                val exited = withContext(Dispatchers.IO) {
+                    process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+                }
+                if (!exited) {
+                    Log.w(TAG, "$name did not stop in ${timeoutMs}ms, force killing")
+                    process.destroyForcibly()
+                    withContext(Dispatchers.IO) {
+                        process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping $name", e)
+            }
         }
+
+        stopProcess(tun2socksProcess, "tun2socks")
         tun2socksProcess = null
 
-        try {
-            hysteriaProcess?.destroy()
-            hysteriaProcess?.waitFor()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping hysteria", e)
-        }
+        stopProcess(hysteriaProcess, "hysteria")
         hysteriaProcess = null
     }
 
@@ -371,7 +381,9 @@ class ZiVpnService : VpnService() {
         tunnelJob?.cancel()
         tunnelJob = null
 
-        stopProcesses()
+        CoroutineScope(Dispatchers.IO).launch {
+            stopProcesses()
+        }
 
         try {
             vpnInterface?.close()
