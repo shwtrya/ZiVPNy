@@ -246,6 +246,12 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 		} else {
 			callbackText = "Akses Ditolak"
 		}
+	case query.Data == "back_admin_panel":
+		if isAdmin(config, userID) {
+			showBackupRestoreMenu(bot, chatID)
+		} else {
+			showMainMenu(bot, chatID, config)
+		}
 	case query.Data == "menu_online":
 		if isAdmin(config, userID) {
 			listOnlineUsers(bot, chatID)
@@ -674,7 +680,13 @@ func listUsers(bot *tgbotapi.BotAPI, chatID int64) {
 	if res["success"] == true {
 		users := res["data"].([]interface{})
 		if len(users) == 0 {
-			sendMessage(bot, chatID, "📂 Tidak ada user.")
+			msg := tgbotapi.NewMessage(chatID, "📂 Tidak ada user.")
+			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("⬅️ Kembali", "back_admin_panel"),
+				),
+			)
+			sendAndTrack(bot, msg)
 			return
 		}
 
@@ -690,6 +702,11 @@ func listUsers(bot *tgbotapi.BotAPI, chatID int64) {
 
 		reply := tgbotapi.NewMessage(chatID, msg)
 		reply.ParseMode = "Markdown"
+		reply.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("⬅️ Kembali", "back_admin_panel"),
+			),
+		)
 		sendAndTrack(bot, reply)
 	} else {
 		replyError(bot, chatID, "Gagal mengambil data.")
@@ -1128,9 +1145,13 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 
 		reply := tgbotapi.NewMessage(chatID, msg)
 		reply.ParseMode = "Markdown"
+		reply.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("⬅️ Kembali", "back_admin_panel"),
+			),
+		)
 		deleteLastMessage(bot, chatID)
-		bot.Send(reply)
-		showMainMenu(bot, chatID, config)
+		sendAndTrack(bot, reply)
 	} else {
 		replyError(bot, chatID, "Gagal mengambil info.")
 	}
@@ -1253,7 +1274,13 @@ func listOnlineUsers(bot *tgbotapi.BotAPI, chatID int64) {
 		dataBytes, _ := json.Marshal(res["data"])
 		json.Unmarshal(dataBytes, &entries)
 		if len(entries) == 0 {
-			sendMessage(bot, chatID, "📡 Tidak ada akun online.")
+			msg := tgbotapi.NewMessage(chatID, "📡 Tidak ada akun online.")
+			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("⬅️ Kembali", "back_admin_panel"),
+				),
+			)
+			sendAndTrack(bot, msg)
 			return
 		}
 
@@ -1272,6 +1299,11 @@ func listOnlineUsers(bot *tgbotapi.BotAPI, chatID int64) {
 
 		reply := tgbotapi.NewMessage(chatID, msg)
 		reply.ParseMode = "Markdown"
+		reply.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("⬅️ Kembali", "back_admin_panel"),
+			),
+		)
 		sendAndTrack(bot, reply)
 	} else {
 		replyError(bot, chatID, "Gagal mengambil data online.")
@@ -1342,7 +1374,13 @@ func startRemoveAdmin(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
 func listAdmins(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 	admins := adminIDSet(config)
 	if len(admins) == 0 {
-		sendMessage(bot, chatID, "Belum ada admin terdaftar.")
+		msg := tgbotapi.NewMessage(chatID, "Belum ada admin terdaftar.")
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("⬅️ Kembali", "back_admin_panel"),
+			),
+		)
+		sendAndTrack(bot, msg)
 		return
 	}
 
@@ -1361,6 +1399,11 @@ func listAdmins(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 
 	msg := tgbotapi.NewMessage(chatID, builder.String())
 	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ Kembali", "back_admin_panel"),
+		),
+	)
 	sendAndTrack(bot, msg)
 }
 
