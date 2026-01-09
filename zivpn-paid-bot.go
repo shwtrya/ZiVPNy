@@ -30,14 +30,16 @@ import (
 // ==========================================
 
 const (
-	BotConfigFile = "/etc/zivpn/bot-config.json"
-	ApiPortFile   = "/etc/zivpn/api_port"
-	ApiKeyFile    = "/etc/zivpn/apikey"
-	DomainFile    = "/etc/zivpn/domain"
-	PortFile      = "/etc/zivpn/port"
-	PackagesFile  = "/etc/zivpn/packages.json"
-	BotNotifyAddr = "127.0.0.1:9871"
-	MaxAccounts   = 20
+	BotConfigFile      = "/etc/zivpn/bot-config.json"
+	ApiPortFile        = "/etc/zivpn/api_port"
+	ApiKeyFile         = "/etc/zivpn/apikey"
+	DomainFile         = "/etc/zivpn/domain"
+	PortFile           = "/etc/zivpn/port"
+	PackagesFile       = "/etc/zivpn/packages.json"
+	TorrentRulesFile   = "/etc/zivpn/torrent-block.rules"
+	TorrentApplyScript = "/etc/zivpn/torrent-block-apply.sh"
+	BotNotifyAddr      = "127.0.0.1:9871"
+	MaxAccounts        = 20
 )
 
 var ApiUrl = "http://127.0.0.1:" + PortFile + "/api"
@@ -454,6 +456,26 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 		resetState(userID)
 		sendMessage(bot, chatID, fmt.Sprintf("✅ Admin berhasil dihapus: %d", adminID))
 		showMainMenu(bot, chatID, config)
+	case "torrent_custom_rules":
+		rules := strings.TrimSpace(text)
+		if rules == "" {
+			replyError(bot, chatID, "Aturan torrent tidak boleh kosong.")
+			resetState(userID)
+			return
+		}
+		if err := saveTorrentCustomRules(rules); err != nil {
+			replyError(bot, chatID, "Gagal menyimpan aturan torrent: "+err.Error())
+			resetState(userID)
+			return
+		}
+		if err := applyTorrentRules(); err != nil {
+			replyError(bot, chatID, "Gagal menerapkan aturan torrent: "+err.Error())
+			resetState(userID)
+			return
+		}
+		resetState(userID)
+		sendMessage(bot, chatID, "✅ Aturan torrent berhasil diperbarui.")
+		showMainMenu(bot, chatID, config)
 	}
 }
 
@@ -478,6 +500,11 @@ func startRenewUser(bot *tgbotapi.BotAPI, chatID int64, userID int64, data strin
 	tempUserData[userID] = map[string]string{"username": username}
 	userStates[userID] = "renew_protocols"
 	sendMessage(bot, chatID, fmt.Sprintf("🔄 Renewing %s\n🧩 Masukkan protokol baru (pisahkan koma) atau kosong untuk mempertahankan:", username))
+}
+
+func startCustomTorrentRules(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
+	userStates[userID] = "torrent_custom_rules"
+	sendMessage(bot, chatID, "📝 Masukkan aturan torrent custom. Tekan tombol Batal untuk membatalkan.")
 }
 
 func confirmDeleteUser(bot *tgbotapi.BotAPI, chatID int64, data string) {
@@ -936,8 +963,35 @@ func replyError(bot *tgbotapi.BotAPI, chatID int64, text string) {
 	sendMessage(bot, chatID, "❌ "+text)
 }
 
+func saveTorrentCustomRules(rules string) error {
+	rulesText := strings.TrimSpace(rules)
+	if rulesText == "" {
+		return fmt.Errorf("aturan kosong")
+	}
+	if !strings.HasSuffix(rulesText, "\n") {
+		rulesText += "\n"
+	}
+	return os.WriteFile(TorrentRulesFile, []byte(rulesText), 0644)
+}
+
+func applyTorrentRules() error {
+	if _, err := os.Stat(TorrentApplyScript); err != nil {
+		return err
+	}
+	output, err := exec.Command(TorrentApplyScript).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
 func cancelOperation(bot *tgbotapi.BotAPI, chatID int64, userID int64, config *BotConfig) {
-	resetState(userID)
+	if state, ok := userStates[userID]; ok && state == "torrent_custom_rules" {
+		delete(userStates, userID)
+		delete(tempUserData, userID)
+	} else {
+		resetState(userID)
+	}
 	showMainMenu(bot, chatID, config)
 }
 
