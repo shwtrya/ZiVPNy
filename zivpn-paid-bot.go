@@ -38,6 +38,10 @@ const (
 	PackagesFile  = "/etc/zivpn/packages.json"
 	BotNotifyAddr = "127.0.0.1:9871"
 	MaxAccounts   = 20
+	TorrentRules  = "/etc/zivpn/torrent-block.rules"
+	TorrentApply  = "/etc/zivpn/torrent-block-apply.sh"
+	TorrentRemove = "/etc/zivpn/torrent-block-remove.sh"
+	PerfSysctl    = "/etc/sysctl.d/99-zivpn-performance.conf"
 )
 
 var ApiUrl = "http://127.0.0.1:" + PortFile + "/api"
@@ -232,6 +236,42 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 	case query.Data == "menu_admins_list":
 		if isOwner(config, userID) {
 			listAdmins(bot, chatID, config)
+		} else {
+			callbackText = "Akses Ditolak"
+		}
+	case query.Data == "menu_daily_stats":
+		if isAdmin(config, userID) {
+			showDailyStats(bot, chatID)
+		} else {
+			callbackText = "Akses Ditolak"
+		}
+	case query.Data == "menu_high_performance":
+		if isAdmin(config, userID) {
+			applyHighPerformance(bot, chatID, config, userID)
+		} else {
+			callbackText = "Akses Ditolak"
+		}
+	case query.Data == "menu_torrent":
+		if isAdmin(config, userID) {
+			showTorrentMenu(bot, chatID)
+		} else {
+			callbackText = "Akses Ditolak"
+		}
+	case query.Data == "menu_torrent_enable":
+		if isAdmin(config, userID) {
+			enableTorrentBlocker(bot, chatID, config, userID)
+		} else {
+			callbackText = "Akses Ditolak"
+		}
+	case query.Data == "menu_torrent_disable":
+		if isAdmin(config, userID) {
+			disableTorrentBlocker(bot, chatID, config, userID)
+		} else {
+			callbackText = "Akses Ditolak"
+		}
+	case query.Data == "menu_torrent_custom":
+		if isAdmin(config, userID) {
+			startCustomTorrentRules(bot, chatID, userID)
 		} else {
 			callbackText = "Akses Ditolak"
 		}
@@ -454,6 +494,29 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, conf
 		resetState(userID)
 		sendMessage(bot, chatID, fmt.Sprintf("✅ Admin berhasil dihapus: %d", adminID))
 		showMainMenu(bot, chatID, config)
+	case "torrent_custom_rules":
+		if !isAdmin(config, userID) {
+			replyError(bot, chatID, "Akses Ditolak.")
+			resetState(userID)
+			return
+		}
+		if text == "" {
+			replyError(bot, chatID, "Rule tidak boleh kosong.")
+			return
+		}
+		if err := saveTorrentRules(text); err != nil {
+			replyError(bot, chatID, "Gagal menyimpan rule: "+err.Error())
+			resetState(userID)
+			return
+		}
+		if err := applyTorrentRules(); err != nil {
+			replyError(bot, chatID, "Rule tersimpan, tapi gagal diterapkan: "+err.Error())
+			resetState(userID)
+			return
+		}
+		resetState(userID)
+		sendMessage(bot, chatID, "✅ Custom rule berhasil disimpan dan diterapkan.")
+		showBackupRestoreMenu(bot, chatID, config, userID)
 	}
 }
 
@@ -1125,7 +1188,7 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 			domainStatus = "Domain OK"
 		}
 
-		msg := fmt.Sprintf("```\n🖥️ INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n🌐 JARINGAN\n• Domain        : %s\n• Domain Status : %s\n• IP Public     : %s\n• IP Private    : %s\n• Port          : %s\n⚙️ SISTEM\n• Service   : %s\n• CPU       : %s\n• RAM       : %s\n• Disk      : %s\n• Uptime    : %s\n• Load Avg  : %s\n• Kernel    : %s\n• Version   : %s\n📍 LOKASI\n• City      : %s\n• ISP       : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("```\n🖥️ INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n🌐 JARINGAN\n• Domain        : %s\n• Domain Status : %s\n• IP Public     : %s\n• IP Private    : %s\n• Port          : %s\n⚙️ SISTEM\n• Service   : %s\n• CPU       : %s\n• RAM       : %s\n• Disk      : %s\n• Uptime    : %s\n• Load Avg  : %s\n• Kernel    : %s\n• Version   : %s\n📍 LOKASI\n• City      : %s\n• ISP       : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
 			domain,
 			domainStatus,
 			getInfoValue(data, "public_ip", "-"),
@@ -1141,17 +1204,15 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 			getInfoValue(data, "zivpn_version", "-"),
 			ipInfo.City,
 			ipInfo.Isp,
-		)
-
-		reply := tgbotapi.NewMessage(chatID, msg)
-		reply.ParseMode = "Markdown"
-		reply.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		))
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("⬅️ Kembali", "back_admin_panel"),
 			),
 		)
 		deleteLastMessage(bot, chatID)
-		sendAndTrack(bot, reply)
+		sendAndTrack(bot, msg)
 	} else {
 		replyError(bot, chatID, "Gagal mengambil info.")
 	}
@@ -1337,6 +1398,13 @@ func showBackupRestoreMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig
 	}
 	rows = append(rows,
 		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📈 Daily Stats", "menu_daily_stats"),
+			tgbotapi.NewInlineKeyboardButtonData("⚡ High Performance", "menu_high_performance"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🛡️ Torrent Blocker", "menu_torrent"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("⬇️ Backup Data", "menu_backup_action"),
 			tgbotapi.NewInlineKeyboardButtonData("⬆️ Restore Data", "menu_restore_action"),
 		),
@@ -1364,6 +1432,29 @@ func showAdminMenu(bot *tgbotapi.BotAPI, chatID int64) {
 		),
 	)
 	sendAndTrack(bot, msg)
+}
+
+func showTorrentMenu(bot *tgbotapi.BotAPI, chatID int64) {
+	msg := tgbotapi.NewMessage(chatID, "🛡️ *Torrent Blocker*\nPilih aksi:")
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Enable", "menu_torrent_enable"),
+			tgbotapi.NewInlineKeyboardButtonData("⛔ Disable", "menu_torrent_disable"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📝 Custom Rule", "menu_torrent_custom"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ Kembali", "back_admin_panel"),
+		),
+	)
+	sendAndTrack(bot, msg)
+}
+
+func startCustomTorrentRules(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
+	userStates[userID] = "torrent_custom_rules"
+	sendMessage(bot, chatID, "📝 Kirim custom rule torrent blocker.\nContoh tersedia di /etc/zivpn/torrent-block.rules.\nTekan tombol Batal untuk membatalkan.")
 }
 
 func startAddAdmin(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
@@ -1410,6 +1501,214 @@ func listAdmins(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 		),
 	)
 	sendAndTrack(bot, msg)
+}
+
+func enableTorrentBlocker(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig, userID int64) {
+	if err := runScript(TorrentApply); err != nil {
+		replyError(bot, chatID, "Gagal mengaktifkan torrent blocker: "+err.Error())
+		return
+	}
+	sendMessage(bot, chatID, "✅ Torrent blocker diaktifkan.")
+	showBackupRestoreMenu(bot, chatID, config, userID)
+}
+
+func disableTorrentBlocker(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig, userID int64) {
+	if err := runScript(TorrentRemove); err != nil {
+		replyError(bot, chatID, "Gagal menonaktifkan torrent blocker: "+err.Error())
+		return
+	}
+	sendMessage(bot, chatID, "✅ Torrent blocker dinonaktifkan.")
+	showBackupRestoreMenu(bot, chatID, config, userID)
+}
+
+func saveTorrentRules(content string) error {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return fmt.Errorf("rule kosong")
+	}
+	content = content + "\n"
+	return ioutil.WriteFile(TorrentRules, []byte(content), 0644)
+}
+
+func applyTorrentRules() error {
+	return runScript(TorrentApply)
+}
+
+func showDailyStats(bot *tgbotapi.BotAPI, chatID int64) {
+	stats, err := readDailyStats()
+	if err != nil {
+		replyError(bot, chatID, "Gagal membaca daily stats: "+err.Error())
+		return
+	}
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("📈 *Daily Stats*\nInterface: `%s`\n• RX : %s\n• TX : %s\n• Total : %s\nTanggal: %s",
+		stats.Interface,
+		formatBytes(stats.RX),
+		formatBytes(stats.TX),
+		formatBytes(stats.Total),
+		stats.Date,
+	))
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ Kembali", "back_admin_panel"),
+		),
+	)
+	sendAndTrack(bot, msg)
+}
+
+func applyHighPerformance(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig, userID int64) {
+	content := strings.Join([]string{
+		"net.core.rmem_max=134217728",
+		"net.core.wmem_max=134217728",
+		"net.core.rmem_default=134217728",
+		"net.core.wmem_default=134217728",
+		"net.core.netdev_max_backlog=250000",
+		"net.ipv4.udp_mem=65536 131072 262144",
+		"net.ipv4.udp_rmem_min=16384",
+		"net.ipv4.udp_wmem_min=16384",
+		"net.ipv4.tcp_congestion_control=bbr",
+		"",
+	}, "\n")
+	if err := ioutil.WriteFile(PerfSysctl, []byte(content), 0644); err != nil {
+		replyError(bot, chatID, "Gagal menyimpan konfigurasi performa: "+err.Error())
+		return
+	}
+	cmd := exec.Command("sysctl", "--system")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		replyError(bot, chatID, fmt.Sprintf("Gagal menerapkan konfigurasi: %v (%s)", err, strings.TrimSpace(string(output))))
+		return
+	}
+	sendMessage(bot, chatID, "⚡ High Performance sudah diterapkan.")
+	showBackupRestoreMenu(bot, chatID, config, userID)
+}
+
+type dailyStats struct {
+	Interface string
+	Date      string
+	RX        int64
+	TX        int64
+	Total     int64
+}
+
+type vnstatJSON struct {
+	Interfaces []vnstatInterface `json:"interfaces"`
+}
+
+type vnstatInterface struct {
+	Name    string        `json:"name"`
+	Traffic vnstatTraffic `json:"traffic"`
+}
+
+type vnstatTraffic struct {
+	Days []vnstatDay `json:"days"`
+}
+
+type vnstatDay struct {
+	Date  vnstatDate `json:"date"`
+	RX    int64      `json:"rx"`
+	TX    int64      `json:"tx"`
+	Total int64      `json:"total"`
+}
+
+type vnstatDate struct {
+	Year  int `json:"year"`
+	Month int `json:"month"`
+	Day   int `json:"day"`
+}
+
+func readDailyStats() (*dailyStats, error) {
+	output, err := exec.Command("vnstat", "--json").Output()
+	if err != nil {
+		return nil, err
+	}
+	var data vnstatJSON
+	if err := json.Unmarshal(output, &data); err != nil {
+		return nil, err
+	}
+	if len(data.Interfaces) == 0 {
+		return nil, fmt.Errorf("interface tidak ditemukan")
+	}
+
+	iface := defaultInterface()
+	selected := data.Interfaces[0]
+	for _, entry := range data.Interfaces {
+		if entry.Name == iface {
+			selected = entry
+			break
+		}
+	}
+	if len(selected.Traffic.Days) == 0 {
+		return nil, fmt.Errorf("daily stats kosong")
+	}
+
+	now := time.Now()
+	var dayEntry vnstatDay
+	found := false
+	for i := len(selected.Traffic.Days) - 1; i >= 0; i-- {
+		entry := selected.Traffic.Days[i]
+		if entry.Date.Year == now.Year() && entry.Date.Month == int(now.Month()) && entry.Date.Day == now.Day() {
+			dayEntry = entry
+			found = true
+			break
+		}
+	}
+	if !found {
+		dayEntry = selected.Traffic.Days[len(selected.Traffic.Days)-1]
+	}
+	dateLabel := fmt.Sprintf("%04d-%02d-%02d", dayEntry.Date.Year, dayEntry.Date.Month, dayEntry.Date.Day)
+	return &dailyStats{
+		Interface: selected.Name,
+		Date:      dateLabel,
+		RX:        dayEntry.RX * 1024,
+		TX:        dayEntry.TX * 1024,
+		Total:     dayEntry.Total * 1024,
+	}, nil
+}
+
+func defaultInterface() string {
+	output, err := exec.Command("ip", "route", "show", "default").Output()
+	if err != nil {
+		return ""
+	}
+	fields := strings.Fields(string(output))
+	for i, field := range fields {
+		if field == "dev" && i+1 < len(fields) {
+			return fields[i+1]
+		}
+	}
+	return ""
+}
+
+func formatBytes(value int64) string {
+	const (
+		KB = 1024
+		MB = 1024 * KB
+		GB = 1024 * MB
+		TB = 1024 * GB
+	)
+	switch {
+	case value >= TB:
+		return fmt.Sprintf("%.2f TB", float64(value)/float64(TB))
+	case value >= GB:
+		return fmt.Sprintf("%.2f GB", float64(value)/float64(GB))
+	case value >= MB:
+		return fmt.Sprintf("%.2f MB", float64(value)/float64(MB))
+	case value >= KB:
+		return fmt.Sprintf("%.2f KB", float64(value)/float64(KB))
+	default:
+		return fmt.Sprintf("%d B", value)
+	}
+}
+
+func runScript(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("script tidak ditemukan: %s", path)
+	}
+	cmd := exec.Command(path)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 
 func performBackup(bot *tgbotapi.BotAPI, chatID int64) {
