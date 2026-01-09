@@ -148,10 +148,21 @@ class ZiVpnService : VpnService() {
                 }
 
                 // 6. Start tun2socks
-                if (tun2socksPath != null) {
-                    _connectionInfo.value = "Starting tunnel..."
-                    val tunFd = vpnInterface!!.fd
-                    startTun2Socks(tun2socksPath, tunFd)
+                if (tun2socksPath == null) {
+                    _vpnState.value = VpnState.ERROR
+                    _connectionInfo.value = "Failed to extract tun2socks binary"
+                    stopProcesses()
+                    return@launch
+                }
+
+                _connectionInfo.value = "Starting tunnel..."
+                val tunFd = vpnInterface!!.fd
+                val tun2socksStarted = startTun2Socks(tun2socksPath, tunFd)
+                if (!tun2socksStarted) {
+                    _vpnState.value = VpnState.ERROR
+                    _connectionInfo.value = "Failed to start tun2socks"
+                    stopProcesses()
+                    return@launch
                 }
 
                 _vpnState.value = VpnState.CONNECTED
