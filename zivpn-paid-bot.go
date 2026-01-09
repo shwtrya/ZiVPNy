@@ -971,7 +971,7 @@ func saveTorrentCustomRules(rules string) error {
 	if !strings.HasSuffix(rulesText, "\n") {
 		rulesText += "\n"
 	}
-	return os.WriteFile(TorrentRulesFile, []byte(rulesText), 0644)
+	return ioutil.WriteFile(TorrentRulesFile, []byte(rulesText), 0644)
 }
 
 func applyTorrentRules() error {
@@ -1008,7 +1008,7 @@ net.ipv4.udp_mem=262144 524288 1048576
 net.ipv4.udp_rmem_min=16384
 net.ipv4.udp_wmem_min=16384
 `)
-	if err := os.WriteFile(sysctlConfigPath, []byte(sysctlConfig+"\n"), 0644); err != nil {
+	if err := ioutil.WriteFile(sysctlConfigPath, []byte(sysctlConfig+"\n"), 0644); err != nil {
 		return "", err
 	}
 
@@ -1016,7 +1016,7 @@ net.ipv4.udp_wmem_min=16384
 		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(output)))
 	}
 
-	statusBytes, err := os.ReadFile("/proc/sys/net/ipv4/tcp_congestion_control")
+	statusBytes, err := ioutil.ReadFile("/proc/sys/net/ipv4/tcp_congestion_control")
 	if err != nil {
 		return "", err
 	}
