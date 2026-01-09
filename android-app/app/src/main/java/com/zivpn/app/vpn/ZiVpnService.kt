@@ -8,6 +8,9 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.zivpn.app.R
@@ -62,6 +65,8 @@ class ZiVpnService : VpnService() {
     private var serverPort: Int = 5667
     private var password: String = ""
     private var obfsKey: String = ""
+    private var serverIps: List<String> = emptyList()
+    private var hysteriaProtectFd: Int? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -111,6 +116,16 @@ class ZiVpnService : VpnService() {
                 configFile.writeText(config)
                 Log.d(TAG, "Hysteria config: $config")
 
+                // Resolve server IPs before VPN is up to avoid DNS lookup looping into the tunnel.
+                // Assumption: Hysteria connects directly to these IPs; if the backend rotates addresses,
+                // we rely on reconnects to refresh this list.
+                serverIps = resolveServerIps(serverDomain)
+                if (serverIps.isEmpty()) {
+                    Log.w(TAG, "Failed to resolve $serverDomain before VPN setup")
+                } else {
+                    Log.d(TAG, "Resolved $serverDomain to $serverIps")
+                }
+
                 // 3. Start Hysteria process
                 _connectionInfo.value = "Starting Hysteria..."
                 val hysteriaStarted = startHysteria(hysteriaPath, configFile.absolutePath)
@@ -131,7 +146,7 @@ class ZiVpnService : VpnService() {
 
                 // 5. Setup VPN interface
                 _connectionInfo.value = "Setting up VPN..."
-                vpnInterface = Builder()
+                val builder = Builder()
                     .setSession("ZiVPN - $serverDomain")
                     .addAddress("10.255.0.1", 30)
                     .addRoute("0.0.0.0", 0)
@@ -139,7 +154,17 @@ class ZiVpnService : VpnService() {
                     .addDnsServer("1.1.1.1")
                     .setMtu(TUN_MTU)
                     .setBlocking(false)
-                    .establish()
+
+                // High-performance assumption: the app (including the Hysteria process UID) must not be
+                // routed into the TUN to prevent feedback loops. We resolve server IPs early and rely on
+                // app disallow + optional protect FD integration to keep the Hysteria sockets outside.
+                try {
+                    builder.addDisallowedApplication(packageName)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to disallow app for VPN routing", e)
+                }
+
+                vpnInterface = builder.establish()
 
                 if (vpnInterface == null) {
                     _vpnState.value = VpnState.ERROR
@@ -227,6 +252,13 @@ class ZiVpnService : VpnService() {
             val processBuilder = ProcessBuilder(*cmd)
                 .directory(filesDir)
                 .redirectErrorStream(true)
+
+            // If the native Hysteria wrapper supports FD-passing, pass a protected FD so
+            // the process can reuse it (prevents VPN routing loop). Safe no-op otherwise.
+            hysteriaProtectFd = prepareProtectFd()
+            hysteriaProtectFd?.let { fd ->
+                processBuilder.environment()["ZIVPN_PROTECT_FD"] = fd.toString()
+            }
 
             hysteriaProcess = processBuilder.start()
 
@@ -372,6 +404,39 @@ class ZiVpnService : VpnService() {
 
         stopProcess(hysteriaProcess, "hysteria")
         hysteriaProcess = null
+
+        hysteriaProtectFd?.let { fd ->
+            try {
+                Os.close(fd)
+            } catch (e: ErrnoException) {
+                Log.w(TAG, "Failed to close protect fd", e)
+            }
+        }
+        hysteriaProtectFd = null
+    }
+
+    private fun resolveServerIps(domain: String): List<String> {
+        return try {
+            java.net.InetAddress.getAllByName(domain).map { it.hostAddress }.distinct()
+        } catch (e: Exception) {
+            Log.w(TAG, "DNS resolve failed for $domain", e)
+            emptyList()
+        }
+    }
+
+    private fun prepareProtectFd(): Int? {
+        return try {
+            val fd = Os.socket(OsConstants.AF_INET, OsConstants.SOCK_DGRAM, OsConstants.IPPROTO_UDP)
+            if (!protect(fd)) {
+                Os.close(fd)
+                null
+            } else {
+                fd
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to prepare protected FD for Hysteria", e)
+            null
+        }
     }
 
     private fun stopVpn() {
