@@ -1217,7 +1217,7 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 			domainStatus = "Domain OK"
 		}
 
-		msg := tgbotapi.NewMessage(chatID, "```\n🖥️ INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n🌐 JARINGAN\n• Domain        : %s\n• Domain Status : %s\n• IP Public     : %s\n• IP Private    : %s\n• Port          : %s\n⚙️ SISTEM\n• Service   : %s\n• CPU       : %s\n• RAM       : %s\n• Disk      : %s\n• Uptime    : %s\n• Load Avg  : %s\n• Kernel    : %s\n• Version   : %s\n📍 LOKASI\n• City      : %s\n• ISP       : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("```\n🖥️ INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\n🌐 JARINGAN\n• Domain        : %s\n• Domain Status : %s\n• IP Public     : %s\n• IP Private    : %s\n• Port          : %s\n⚙️ SISTEM\n• Service   : %s\n• CPU       : %s\n• RAM       : %s\n• Disk      : %s\n• Uptime    : %s\n• Load Avg  : %s\n• Kernel    : %s\n• Version   : %s\n📍 LOKASI\n• City      : %s\n• ISP       : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
 			domain,
 			domainStatus,
 			getInfoValue(data, "public_ip", "-"),
@@ -1233,17 +1233,16 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 			getInfoValue(data, "zivpn_version", "-"),
 			ipInfo.City,
 			ipInfo.Isp,
-		)
+		))
 
-		reply := tgbotapi.NewMessage(chatID, msg)
-		reply.ParseMode = "Markdown"
-		reply.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("⬅️ Kembali", "cancel"),
 			),
 		)
 		deleteLastMessage(bot, chatID)
-		sendAndTrack(bot, reply)
+		sendAndTrack(bot, msg)
 	} else {
 		replyError(bot, chatID, "Gagal mengambil info.")
 	}
@@ -1325,7 +1324,7 @@ func showDailyStats(bot *tgbotapi.BotAPI, chatID int64) {
 		displayUnit = fmt.Sprintf("%s (dari %s)", stats.DisplayUnit, stats.Unit)
 	}
 
-	msg := fmt.Sprintf("📊 *Statistik Harian*\n• Interface : `%s`\n• Unit      : %s\n• Total RX  : %d %s\n• Total TX  : %d %s\n• Total     : %d %s\n",
+	messageText := fmt.Sprintf("📊 *Statistik Harian*\n• Interface : `%s`\n• Unit      : %s\n• Total RX  : %d %s\n• Total TX  : %d %s\n• Total     : %d %s\n",
 		stats.Interface,
 		displayUnit,
 		stats.TotalRx, unitLine,
@@ -1334,9 +1333,9 @@ func showDailyStats(bot *tgbotapi.BotAPI, chatID int64) {
 	)
 
 	if len(stats.Days) > 0 {
-		msg += "\n*Rincian Harian*\n"
+		messageText += "\n*Rincian Harian*\n"
 		for _, day := range stats.Days {
-			msg += fmt.Sprintf("• %s: RX %d %s, TX %d %s, Total %d %s\n",
+			messageText += fmt.Sprintf("• %s: RX %d %s, TX %d %s, Total %d %s\n",
 				day.Date,
 				day.Rx, unitLine,
 				day.Tx, unitLine,
@@ -1345,9 +1344,9 @@ func showDailyStats(bot *tgbotapi.BotAPI, chatID int64) {
 		}
 	}
 
-	reply := tgbotapi.NewMessage(chatID, msg)
-	reply.ParseMode = "Markdown"
-	sendAndTrack(bot, reply)
+	msg := tgbotapi.NewMessage(chatID, messageText)
+	msg.ParseMode = "Markdown"
+	sendAndTrack(bot, msg)
 }
 
 func readDailyStats() (*DailyStats, error) {
