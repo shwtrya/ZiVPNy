@@ -16,4 +16,13 @@
     <string name="connect">Connect</string>
     <string name="disconnect">Disconnect</string>
     <string name="cleanup_expired">Cleanup Expired</string>
+    <string name="settings">Settings</string>
+    <string name="settings_title">Pengaturan VPN</string>
+    <string name="mtu_label">MTU</string>
+    <string name="mtu_helper">Rentang aman 1000–1500</string>
+    <string name="mtu_tip">Jika sering disconnect, coba turunkan MTU ke 1100–1200.</string>
+    <string name="save">Simpan</string>
+    <string name="mtu_invalid_number">MTU harus berupa angka.</string>
+    <string name="mtu_invalid_range">MTU harus di antara %1$d–%2$d.</string>
+    <string name="mtu_saved">Pengaturan MTU tersimpan.</string>
 </resources>

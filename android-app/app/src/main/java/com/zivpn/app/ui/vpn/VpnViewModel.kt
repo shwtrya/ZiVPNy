@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.VpnService
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.zivpn.app.data.local.UserPreferences
 import com.zivpn.app.data.model.Server
 import com.zivpn.app.data.model.VpnState
 import com.zivpn.app.vpn.ZiVpnService
@@ -22,7 +23,8 @@ data class VpnUiState(
 
 @HiltViewModel
 class VpnViewModel @Inject constructor(
-    private val application: Application
+    private val application: Application,
+    private val userPreferences: UserPreferences
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(VpnUiState())
@@ -41,12 +43,14 @@ class VpnViewModel @Inject constructor(
     }
 
     fun connect(server: Server, password: String) {
+        val mtu = userPreferences.getMtu()
         val intent = Intent(application, ZiVpnService::class.java).apply {
             action = ZiVpnService.ACTION_CONNECT
             putExtra(ZiVpnService.EXTRA_SERVER_DOMAIN, server.domain)
             putExtra(ZiVpnService.EXTRA_SERVER_PORT, server.port)
             putExtra(ZiVpnService.EXTRA_PASSWORD, password)
             putExtra(ZiVpnService.EXTRA_OBFS, server.obfs)
+            putExtra(ZiVpnService.EXTRA_MTU, mtu)
         }
         application.startService(intent)
         _uiState.update { it.copy(connectedServer = server, connectedPassword = password) }

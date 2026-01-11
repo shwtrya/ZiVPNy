@@ -15,6 +15,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.zivpn.app.R
 import com.zivpn.app.data.model.VpnState
+import com.zivpn.app.data.model.MtuConfig
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,11 +43,11 @@ class ZiVpnService : VpnService() {
         const val EXTRA_SERVER_PORT = "server_port"
         const val EXTRA_PASSWORD = "password"
         const val EXTRA_OBFS = "obfs"
+        const val EXTRA_MTU = "extra_mtu"
 
         private const val CHANNEL_ID = "zivpn_channel"
         private const val NOTIFICATION_ID = 1
         private const val SOCKS_PORT = 10808
-        private const val TUN_MTU = 1500
 
         private val _vpnState = MutableStateFlow(VpnState.DISCONNECTED)
         val vpnState: StateFlow<VpnState> = _vpnState
@@ -67,6 +68,7 @@ class ZiVpnService : VpnService() {
     private var obfsKey: String = ""
     private var serverIps: List<String> = emptyList()
     private var hysteriaProtectFd: Int? = null
+    private var tunMtu: Int = MtuConfig.DEFAULT_MTU
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -75,6 +77,8 @@ class ZiVpnService : VpnService() {
                 serverPort = intent.getIntExtra(EXTRA_SERVER_PORT, 5667)
                 password = intent.getStringExtra(EXTRA_PASSWORD) ?: ""
                 obfsKey = intent.getStringExtra(EXTRA_OBFS) ?: "zivpn"
+                tunMtu = intent.getIntExtra(EXTRA_MTU, MtuConfig.DEFAULT_MTU)
+                    .coerceIn(MtuConfig.MIN_MTU, MtuConfig.MAX_MTU)
                 startVpn()
             }
             ACTION_DISCONNECT -> stopVpn()
@@ -152,7 +156,7 @@ class ZiVpnService : VpnService() {
                     .addRoute("0.0.0.0", 0)
                     .addDnsServer("8.8.8.8")
                     .addDnsServer("1.1.1.1")
-                    .setMtu(TUN_MTU)
+                    .setMtu(tunMtu)
                     .setBlocking(false)
 
                 // High-performance assumption: the app (including the Hysteria process UID) must not be

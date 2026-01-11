@@ -258,7 +258,7 @@ Jika Anda melihat log seperti:
 *   **Penyebab**: Koneksi client tidak stabil (sering terjadi pada jaringan seluler/Indosat) atau masalah MTU.
 *   **Solusi**:
     *   Ini biasanya **bukan error server**. Jika user masih bisa connect, abaikan saja.
-    *   Jika user sering disconnect, sarankan user menurunkan **MTU** di aplikasi client mereka (coba `1100` atau `1200`).
+    *   Jika user sering disconnect, sarankan user menurunkan **MTU** lewat menu **Settings → MTU** di aplikasi ZiVPN (coba `1100` atau `1200`).
 
 ### 2. Bot Telegram Tidak Merespon
 *   Pastikan service berjalan: `systemctl status zivpn-bot`
