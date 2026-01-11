@@ -71,6 +71,23 @@ failregex = ^.*(?:auth|authentication)\s*(?:failed|failure|invalid|error).*?(?:f
 ignoreregex =
 EOF
 
+cat <<'EOF' > /etc/logrotate.d/zivpn
+/var/log/zivpn.log {
+  daily
+  size 50M
+  rotate 7
+  compress
+  delaycompress
+  missingok
+  notifempty
+  copytruncate
+  sharedscripts
+  postrotate
+    systemctl reload fail2ban >/dev/null 2>&1 || true
+  endscript
+}
+EOF
+
 cat <<'EOF' > /etc/fail2ban/jail.d/zivpn.local
 [sshd]
 enabled = true
