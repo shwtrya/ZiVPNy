@@ -314,7 +314,7 @@ done
 echo "$API_PORT" > /etc/zivpn/api_port
 print_done "API Port selected: ${CYAN}$API_PORT${RESET}"
 
-cat >> /etc/sysctl.conf <<END
+cat <<'END' > /etc/sysctl.d/99-zivpn.conf
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 net.ipv4.ip_forward=1
@@ -324,16 +324,18 @@ net.core.rmem_default=16777216
 net.core.wmem_default=16777216
 net.core.optmem_max=65536
 net.core.somaxconn=65535
+net.core.netdev_max_backlog=16384
+net.core.netdev_budget=600
+net.core.rps_sock_flow_entries=65536
 net.ipv4.tcp_rmem=4096 87380 16777216
 net.ipv4.tcp_wmem=4096 65536 16777216
 net.ipv4.tcp_fastopen=3
 fs.file-max=1000000
-net.core.netdev_max_backlog=16384
-net.ipv4.udp_mem=65536 131072 262144
-net.ipv4.udp_rmem_min=8192
-net.ipv4.udp_wmem_min=8192
+net.ipv4.udp_mem=262144 524288 1048576
+net.ipv4.udp_rmem_min=16384
+net.ipv4.udp_wmem_min=16384
 END
-sysctl -p &>/dev/null
+sysctl --system &>/dev/null
 
 cat <<EOF > /etc/systemd/system/zivpn.service
 [Unit]
