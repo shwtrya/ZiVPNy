@@ -69,6 +69,7 @@ Saat script berjalan, Anda akan diminta memasukkan:
 *   **Torrent Blocker**: Enable/disable sesuai kebutuhan (lihat bagian di bawah) dan sesuaikan rule di `/etc/zivpn/torrent-block.rules`.
 *   **Backup Full**: Jalankan menu **Backup** dari bot (Free/Paid) untuk mendapatkan ZIP backup penuh. Simpan file ZIP sebagai cadangan restore.
 *   **Cron Cleanup**: Pastikan cron berjalan (jadwal default di bawah) dan cek log di `/var/log/zivpn-cron.log`. Untuk uji manual, gunakan endpoint `/api/cron/cleanup`.
+*   **Tuning conntrack (anti-timeout)**: Installer menambahkan pengaturan conntrack di `/etc/sysctl.d/99-zivpn.conf` (dan preset performa bot menulis ke `/etc/sysctl.d/99-zivpn-high-performance.conf` atau `/etc/sysctl.d/99-zivpn-conservative.conf`). Nilai `net.netfilter.nf_conntrack_udp_timeout`/`nf_conntrack_udp_timeout_stream` yang lebih tinggi membantu sesi UDP idle bertahan lebih lama (anti-timeout), tetapi menambah pemakaian memori dan membuat entri koneksi lama lebih lama dibersihkan. Untuk perubahan yang konsisten pada koneksi lama, lakukan reconnect setelah apply sysctl. Untuk skala tinggi, pertimbangkan set `hashsize` melalui modul, misalnya dengan membuat `/etc/modprobe.d/zivpn-conntrack.conf` berisi `options nf_conntrack hashsize=262144` lalu reload modul.
 
 ### Enable/Disable Torrent Blocker
 *   **Enable**: Jalankan `/etc/zivpn/torrent-block-apply.sh`

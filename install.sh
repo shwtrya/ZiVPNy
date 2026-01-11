@@ -318,6 +318,9 @@ cat <<'END' > /etc/sysctl.d/99-zivpn.conf
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 net.ipv4.ip_forward=1
+net.netfilter.nf_conntrack_max=262144
+net.netfilter.nf_conntrack_udp_timeout=60
+net.netfilter.nf_conntrack_udp_timeout_stream=180
 net.core.rmem_max=16777216
 net.core.wmem_max=16777216
 net.core.rmem_default=16777216
