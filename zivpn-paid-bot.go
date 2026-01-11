@@ -1027,6 +1027,9 @@ func applyHighPerformance() (string, error) {
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 net.ipv4.ip_forward=1
+net.netfilter.nf_conntrack_max=524288
+net.netfilter.nf_conntrack_udp_timeout=120
+net.netfilter.nf_conntrack_udp_timeout_stream=300
 net.core.rmem_max=16777216
 net.core.wmem_max=16777216
 net.core.rmem_default=16777216
@@ -1052,6 +1055,9 @@ func applyConservativePerformance() (string, error) {
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 net.ipv4.ip_forward=1
+net.netfilter.nf_conntrack_max=131072
+net.netfilter.nf_conntrack_udp_timeout=30
+net.netfilter.nf_conntrack_udp_timeout_stream=120
 net.core.rmem_max=8388608
 net.core.wmem_max=8388608
 net.core.rmem_default=262144
@@ -1078,6 +1084,9 @@ func applyPerformancePreset(label, sysctlConfigPath, sysctlConfig string) (strin
 		"net.core.default_qdisc",
 		"net.ipv4.tcp_congestion_control",
 		"net.ipv4.ip_forward",
+		"net.netfilter.nf_conntrack_max",
+		"net.netfilter.nf_conntrack_udp_timeout",
+		"net.netfilter.nf_conntrack_udp_timeout_stream",
 		"net.core.rmem_max",
 		"net.core.wmem_max",
 		"net.core.rmem_default",
