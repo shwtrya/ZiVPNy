@@ -139,6 +139,17 @@ read -p "Enable torrent blocker (iptables/ufw) [y/N]: " enable_torrent_blocker
 enable_torrent_blocker=${enable_torrent_blocker:-N}
 echo ""
 
+echo -ne "${BOLD}Automation Integration${RESET}\n"
+read -p "Enable Auto ModPES (Android >= 11) [y/N]: " enable_auto_modpes
+enable_auto_modpes=${enable_auto_modpes:-N}
+read -p "Auto ModPES interval seconds [default: 300]: " auto_modpes_interval
+auto_modpes_interval=${auto_modpes_interval:-300}
+read -p "Enable Auto Airplane Mode [y/N]: " enable_auto_airplane
+enable_auto_airplane=${enable_auto_airplane:-N}
+read -p "Auto Airplane interval seconds [default: 300]: " auto_airplane_interval
+auto_airplane_interval=${auto_airplane_interval:-300}
+echo ""
+
 systemctl stop zivpn.service &>/dev/null
 run_silent "Downloading Core" "wget -q https://github.com/zahidbd2/udp-zivpn/releases/download/udp-zivpn_1.4.9/udp-zivpn-linux-amd64 -O /usr/local/bin/zivpn && chmod +x /usr/local/bin/zivpn"
 
@@ -149,6 +160,38 @@ run_silent "Configuring" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVP
 run_silent "Configuring packages" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/packages.json -O /etc/zivpn/packages.json"
 
 run_silent "Generating SSL" "openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 -subj '/C=ID/ST=Jawa Barat/L=Bandung/O=AutoFTbot/OU=IT Department/CN=$domain' -keyout /etc/zivpn/zivpn.key -out /etc/zivpn/zivpn.crt"
+
+mkdir -p /usr/local/bin/zivpn
+run_silent "Downloading Auto ModPES Script" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/auto-modpes-android11.sh -O /usr/local/bin/zivpn/auto-modpes-android11.sh"
+run_silent "Downloading Auto Airplane Script" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/auto-airplane-mode.sh -O /usr/local/bin/zivpn/auto-airplane-mode.sh"
+run_silent "Installing Automation Helper" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/zivpn-automation -O /usr/local/bin/zivpn/zivpn-automation"
+chmod +x /usr/local/bin/zivpn/auto-modpes-android11.sh /usr/local/bin/zivpn/auto-airplane-mode.sh /usr/local/bin/zivpn/zivpn-automation
+ln -sf /usr/local/bin/zivpn/zivpn-automation /usr/local/bin/zivpn-automation
+
+mkdir -p /var/log/zivpn
+cat <<EOF > /etc/zivpn/automation.conf
+AUTO_MODPES_ENABLED=$(if [[ "$enable_auto_modpes" =~ ^[Yy]$ ]]; then echo "true"; else echo "false"; fi)
+AUTO_AIRPLANE_ENABLED=$(if [[ "$enable_auto_airplane" =~ ^[Yy]$ ]]; then echo "true"; else echo "false"; fi)
+AUTO_MODPES_INTERVAL=${auto_modpes_interval}
+AUTO_AIRPLANE_INTERVAL=${auto_airplane_interval}
+LOG_DIR=/var/log/zivpn
+LOG_FILE=/var/log/zivpn/automation.log
+EOF
+
+cat <<'EOF' > /etc/logrotate.d/zivpn-automation
+/var/log/zivpn/automation.log {
+  daily
+  size 20M
+  rotate 7
+  compress
+  delaycompress
+  missingok
+  notifempty
+  copytruncate
+}
+EOF
+
+run_silent "Configuring Automation Scheduler" "/usr/local/bin/zivpn/zivpn-automation restart"
 
 mkdir -p /etc/zivpn/protocols
 cat <<'EOF' > /etc/zivpn/torrent-block.rules
