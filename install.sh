@@ -161,12 +161,16 @@ run_silent "Configuring packages" "wget -q https://raw.githubusercontent.com/shw
 
 run_silent "Generating SSL" "openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 -subj '/C=ID/ST=Jawa Barat/L=Bandung/O=AutoFTbot/OU=IT Department/CN=$domain' -keyout /etc/zivpn/zivpn.key -out /etc/zivpn/zivpn.crt"
 
-mkdir -p /usr/local/bin/zivpn
-run_silent "Downloading Auto ModPES Script" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/auto-modpes-android11.sh -O /usr/local/bin/zivpn/auto-modpes-android11.sh"
-run_silent "Downloading Auto Airplane Script" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/auto-airplane-mode.sh -O /usr/local/bin/zivpn/auto-airplane-mode.sh"
-run_silent "Installing Automation Helper" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/zivpn-automation -O /usr/local/bin/zivpn/zivpn-automation"
-chmod +x /usr/local/bin/zivpn/auto-modpes-android11.sh /usr/local/bin/zivpn/auto-airplane-mode.sh /usr/local/bin/zivpn/zivpn-automation
-ln -sf /usr/local/bin/zivpn/zivpn-automation /usr/local/bin/zivpn-automation
+automation_dir="/usr/local/bin/zivpn"
+if [[ -f /usr/local/bin/zivpn ]]; then
+  automation_dir="/usr/local/bin/zivpn-automation"
+fi
+mkdir -p "$automation_dir"
+run_silent "Downloading Auto ModPES Script" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/auto-modpes-android11.sh -O ${automation_dir}/auto-modpes-android11.sh"
+run_silent "Downloading Auto Airplane Script" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/auto-airplane-mode.sh -O ${automation_dir}/auto-airplane-mode.sh"
+run_silent "Installing Automation Helper" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/zivpn-automation -O ${automation_dir}/zivpn-automation"
+chmod +x "${automation_dir}/auto-modpes-android11.sh" "${automation_dir}/auto-airplane-mode.sh" "${automation_dir}/zivpn-automation"
+ln -sf "${automation_dir}/zivpn-automation" /usr/local/bin/zivpn-automation
 
 mkdir -p /var/log/zivpn
 cat <<EOF > /etc/zivpn/automation.conf
@@ -174,6 +178,7 @@ AUTO_MODPES_ENABLED=$(if [[ "$enable_auto_modpes" =~ ^[Yy]$ ]]; then echo "true"
 AUTO_AIRPLANE_ENABLED=$(if [[ "$enable_auto_airplane" =~ ^[Yy]$ ]]; then echo "true"; else echo "false"; fi)
 AUTO_MODPES_INTERVAL=${auto_modpes_interval}
 AUTO_AIRPLANE_INTERVAL=${auto_airplane_interval}
+AUTOMATION_BIN_DIR=${automation_dir}
 LOG_DIR=/var/log/zivpn
 LOG_FILE=/var/log/zivpn/automation.log
 EOF
