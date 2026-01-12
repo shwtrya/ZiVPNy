@@ -5,6 +5,7 @@ CONFIG_FILE="/etc/zivpn/automation.conf"
 DEFAULT_LOG_DIR="/var/log/zivpn"
 DEFAULT_LOG_FILE="/var/log/zivpn/automation.log"
 STATE_DIR="/var/lib/zivpn/automation"
+DEFAULT_BIN_DIR="/usr/local/bin/zivpn"
 
 load_config() {
   AUTO_MODPES_ENABLED="false"
@@ -13,6 +14,7 @@ load_config() {
   AUTO_AIRPLANE_INTERVAL="300"
   LOG_DIR="$DEFAULT_LOG_DIR"
   LOG_FILE="$DEFAULT_LOG_FILE"
+  DEFAULT_BIN_DIR="/usr/local/bin/zivpn"
 
   if [[ -f "$CONFIG_FILE" ]]; then
     # shellcheck disable=SC1090
@@ -58,7 +60,7 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/zivpn/zivpn-automation run-modpes
+ExecStart=/usr/local/bin/zivpn-automation run-modpes
 EOF
 
   cat <<'EOF' > /etc/systemd/system/zivpn-automation-airplane.service
@@ -68,7 +70,7 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/zivpn/zivpn-automation run-airplane
+ExecStart=/usr/local/bin/zivpn-automation run-airplane
 EOF
 
   cat <<EOF > /etc/systemd/system/zivpn-automation-modpes.timer
@@ -115,11 +117,11 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EOF
 
   if [[ "$AUTO_MODPES_ENABLED" == "true" ]]; then
-    echo "*/${modpes_minutes} * * * * root /usr/local/bin/zivpn/zivpn-automation run-modpes" >> /etc/cron.d/zivpn-automation
+    echo "*/${modpes_minutes} * * * * root /usr/local/bin/zivpn-automation run-modpes" >> /etc/cron.d/zivpn-automation
   fi
 
   if [[ "$AUTO_AIRPLANE_ENABLED" == "true" ]]; then
-    echo "*/${airplane_minutes} * * * * root /usr/local/bin/zivpn/zivpn-automation run-airplane" >> /etc/cron.d/zivpn-automation
+    echo "*/${airplane_minutes} * * * * root /usr/local/bin/zivpn-automation run-airplane" >> /etc/cron.d/zivpn-automation
   fi
 }
 
@@ -183,7 +185,7 @@ run_modpes() {
   fi
 
   log "Menjalankan Auto ModPES (toggle)."
-  if /usr/local/bin/zivpn/auto-modpes-android11.sh toggle >>"$LOG_FILE" 2>&1; then
+  if "${AUTOMATION_BIN_DIR}/auto-modpes-android11.sh" toggle >>"$LOG_FILE" 2>&1; then
     log "Auto ModPES selesai."
   else
     log "Auto ModPES gagal. Cek log untuk detail."
@@ -207,7 +209,7 @@ run_airplane() {
   fi
 
   log "Menjalankan Auto Airplane Mode (once, interval ${AUTO_AIRPLANE_INTERVAL}s)."
-  if /usr/local/bin/zivpn/auto-airplane-mode.sh once "$AUTO_AIRPLANE_INTERVAL" >>"$LOG_FILE" 2>&1; then
+ if "${AUTOMATION_BIN_DIR}/auto-airplane-mode.sh" once "$AUTO_AIRPLANE_INTERVAL" >>"$LOG_FILE" 2>&1; then
     log "Auto Airplane Mode selesai."
   else
     log "Auto Airplane Mode gagal. Cek log untuk detail."
