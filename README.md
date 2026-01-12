@@ -95,6 +95,32 @@ Jika format log ZiVPN berbeda, edit `failregex` di filter `zivpn.conf` lalu rest
 
 ---
 
+## 🛠️ Utilitas/Script
+
+### Kontrol Airplane Mode Android 11+
+Script: `scripts/auto-modpes-android11.sh`
+
+Fitur:
+*   Enable/disable/toggle airplane mode.
+*   Mode interval untuk toggle berkala.
+*   Deteksi otomatis metode yang tersedia:
+    *   `adb shell cmd connectivity airplane-mode enable|disable`, atau
+    *   `adb shell settings put global airplane_mode_on 1|0` + broadcast intent.
+
+Contoh penggunaan:
+```bash
+./scripts/auto-modpes-android11.sh on
+./scripts/auto-modpes-android11.sh off
+./scripts/auto-modpes-android11.sh toggle
+./scripts/auto-modpes-android11.sh interval 5
+```
+
+**Catatan permission**:
+*   Perintah `settings put global` membutuhkan permission **WRITE_SECURE_SETTINGS** atau akses **root**.
+*   Gunakan perangkat dengan `adb` aktif; pada beberapa device, `cmd connectivity` juga butuh privilege yang sama.
+
+---
+
 ## 🤖 Telegram Bot Usage
 
 ### Free Bot
