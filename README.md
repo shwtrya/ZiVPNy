@@ -143,6 +143,63 @@ AIRPLANE_INTERVAL=7 ./scripts/auto-airplane-mode.sh loop
 
 ---
 
+## ⚙️ Automation Integration
+
+ZiVPNy kini dapat mengintegrasikan **Auto ModPES (Android ≥ 11)** dan **Auto Airplane Mode** ke alur instalasi dan eksekusi otomatis.
+
+### Lokasi File & Konfigurasi
+*   Script terpasang di: `/usr/local/bin/zivpn/`
+*   Helper: `zivpn-automation`
+*   Konfigurasi terpusat: `/etc/zivpn/automation.conf`
+*   Log: `/var/log/zivpn/automation.log`
+
+Contoh isi konfigurasi:
+```ini
+AUTO_MODPES_ENABLED=true
+AUTO_AIRPLANE_ENABLED=false
+AUTO_MODPES_INTERVAL=300
+AUTO_AIRPLANE_INTERVAL=300
+LOG_DIR=/var/log/zivpn
+LOG_FILE=/var/log/zivpn/automation.log
+```
+
+### Perintah Helper
+```bash
+zivpn-automation status
+zivpn-automation enable modpes
+zivpn-automation disable airplane
+zivpn-automation restart
+zivpn-automation logs
+```
+
+### Systemd Service & Timer
+Jika systemd tersedia, installer membuat:
+* `zivpn-automation-modpes.service` + `zivpn-automation-modpes.timer`
+* `zivpn-automation-airplane.service` + `zivpn-automation-airplane.timer`
+
+Jika systemd tidak tersedia, fallback menggunakan cron (`/etc/cron.d/zivpn-automation`).
+
+### Testing Manual
+```bash
+systemctl status zivpn-automation-modpes.timer
+systemctl status zivpn-automation-airplane.timer
+journalctl -u zivpn-automation-modpes.service --since "1 hour ago"
+journalctl -u zivpn-automation-airplane.service --since "1 hour ago"
+```
+
+### Rollback (Disable Automation)
+```bash
+zivpn-automation disable all
+systemctl disable --now zivpn-automation-modpes.timer
+systemctl disable --now zivpn-automation-airplane.timer
+```
+
+Catatan:
+*   Jika dijalankan di VPS/non-Android, automation akan **skip** dengan log yang rapi (tidak crash).
+*   Ubah interval di `/etc/zivpn/automation.conf` lalu jalankan `zivpn-automation restart` untuk menerapkan.
+
+---
+
 ## 🤖 Telegram Bot Usage
 
 ### Free Bot

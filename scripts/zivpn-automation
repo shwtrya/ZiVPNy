@@ -1,0 +1,327 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_FILE="/etc/zivpn/automation.conf"
+DEFAULT_LOG_DIR="/var/log/zivpn"
+DEFAULT_LOG_FILE="/var/log/zivpn/automation.log"
+STATE_DIR="/var/lib/zivpn/automation"
+
+load_config() {
+  AUTO_MODPES_ENABLED="false"
+  AUTO_AIRPLANE_ENABLED="false"
+  AUTO_MODPES_INTERVAL="300"
+  AUTO_AIRPLANE_INTERVAL="300"
+  LOG_DIR="$DEFAULT_LOG_DIR"
+  LOG_FILE="$DEFAULT_LOG_FILE"
+
+  if [[ -f "$CONFIG_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$CONFIG_FILE"
+  fi
+}
+
+ensure_dirs() {
+  mkdir -p "$LOG_DIR" "$STATE_DIR"
+  touch "$LOG_FILE"
+}
+
+log() {
+  local message="$1"
+  echo "$(date -Is) [zivpn-automation] ${message}" | tee -a "$LOG_FILE"
+}
+
+is_systemd_available() {
+  command -v systemctl >/dev/null 2>&1 && systemctl list-units >/dev/null 2>&1
+}
+
+set_config_value() {
+  local key="$1"
+  local value="$2"
+
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    mkdir -p "$(dirname "$CONFIG_FILE")"
+    touch "$CONFIG_FILE"
+  fi
+
+  if grep -q "^${key}=" "$CONFIG_FILE"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$CONFIG_FILE"
+  else
+    echo "${key}=${value}" >> "$CONFIG_FILE"
+  fi
+}
+
+write_systemd_units() {
+  cat <<'EOF' > /etc/systemd/system/zivpn-automation-modpes.service
+[Unit]
+Description=ZiVPN Auto ModPES (Android 11+)
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/zivpn/zivpn-automation run-modpes
+EOF
+
+  cat <<'EOF' > /etc/systemd/system/zivpn-automation-airplane.service
+[Unit]
+Description=ZiVPN Auto Airplane Mode
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/zivpn/zivpn-automation run-airplane
+EOF
+
+  cat <<EOF > /etc/systemd/system/zivpn-automation-modpes.timer
+[Unit]
+Description=ZiVPN Auto ModPES Timer
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=${AUTO_MODPES_INTERVAL}s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  cat <<EOF > /etc/systemd/system/zivpn-automation-airplane.timer
+[Unit]
+Description=ZiVPN Auto Airplane Mode Timer
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=${AUTO_AIRPLANE_INTERVAL}s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+write_cron_entries() {
+  local modpes_minutes=$(( (AUTO_MODPES_INTERVAL + 59) / 60 ))
+  local airplane_minutes=$(( (AUTO_AIRPLANE_INTERVAL + 59) / 60 ))
+
+  if [[ "$modpes_minutes" -lt 1 ]]; then
+    modpes_minutes=1
+  fi
+  if [[ "$airplane_minutes" -lt 1 ]]; then
+    airplane_minutes=1
+  fi
+
+  cat <<EOF > /etc/cron.d/zivpn-automation
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EOF
+
+  if [[ "$AUTO_MODPES_ENABLED" == "true" ]]; then
+    echo "*/${modpes_minutes} * * * * root /usr/local/bin/zivpn/zivpn-automation run-modpes" >> /etc/cron.d/zivpn-automation
+  fi
+
+  if [[ "$AUTO_AIRPLANE_ENABLED" == "true" ]]; then
+    echo "*/${airplane_minutes} * * * * root /usr/local/bin/zivpn/zivpn-automation run-airplane" >> /etc/cron.d/zivpn-automation
+  fi
+}
+
+apply_schedule() {
+  if is_systemd_available; then
+    write_systemd_units
+    systemctl daemon-reload
+
+    if [[ "$AUTO_MODPES_ENABLED" == "true" ]]; then
+      systemctl enable --now zivpn-automation-modpes.timer >/dev/null 2>&1
+    else
+      systemctl disable --now zivpn-automation-modpes.timer >/dev/null 2>&1 || true
+    fi
+
+    if [[ "$AUTO_AIRPLANE_ENABLED" == "true" ]]; then
+      systemctl enable --now zivpn-automation-airplane.timer >/dev/null 2>&1
+    else
+      systemctl disable --now zivpn-automation-airplane.timer >/dev/null 2>&1 || true
+    fi
+  else
+    write_cron_entries
+  fi
+}
+
+check_android_env() {
+  if ! command -v adb >/dev/null 2>&1; then
+    log "ADB tidak ditemukan. Eksekusi dilewati."
+    return 1
+  fi
+
+  if ! adb get-state >/dev/null 2>&1; then
+    log "ADB device belum siap/terhubung. Eksekusi dilewati."
+    return 1
+  fi
+
+  local sdk
+  sdk="$(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r')"
+  if ! [[ "$sdk" =~ ^[0-9]+$ ]]; then
+    log "SDK Android tidak terdeteksi. Eksekusi dilewati."
+    return 1
+  fi
+
+  echo "$sdk"
+  return 0
+}
+
+run_modpes() {
+  if [[ "$AUTO_MODPES_ENABLED" != "true" ]]; then
+    log "Auto ModPES dinonaktifkan. Eksekusi dilewati."
+    return 0
+  fi
+
+  local sdk
+  if ! sdk="$(check_android_env)"; then
+    return 0
+  fi
+
+  if (( sdk < 30 )); then
+    log "Android SDK ${sdk} < 30. Auto ModPES membutuhkan Android 11+. Eksekusi dilewati."
+    return 0
+  fi
+
+  log "Menjalankan Auto ModPES (toggle)."
+  if /usr/local/bin/zivpn/auto-modpes-android11.sh toggle >>"$LOG_FILE" 2>&1; then
+    log "Auto ModPES selesai."
+  else
+    log "Auto ModPES gagal. Cek log untuk detail."
+  fi
+}
+
+run_airplane() {
+  if [[ "$AUTO_AIRPLANE_ENABLED" != "true" ]]; then
+    log "Auto Airplane Mode dinonaktifkan. Eksekusi dilewati."
+    return 0
+  fi
+
+  local sdk
+  if ! sdk="$(check_android_env)"; then
+    return 0
+  fi
+
+  if (( sdk < 26 )); then
+    log "Android SDK ${sdk} < 26. Auto Airplane Mode membutuhkan Android 8+. Eksekusi dilewati."
+    return 0
+  fi
+
+  log "Menjalankan Auto Airplane Mode (once, interval ${AUTO_AIRPLANE_INTERVAL}s)."
+  if /usr/local/bin/zivpn/auto-airplane-mode.sh once "$AUTO_AIRPLANE_INTERVAL" >>"$LOG_FILE" 2>&1; then
+    log "Auto Airplane Mode selesai."
+  else
+    log "Auto Airplane Mode gagal. Cek log untuk detail."
+  fi
+}
+
+show_status() {
+  echo "Config: $CONFIG_FILE"
+  echo "Auto ModPES     : $AUTO_MODPES_ENABLED (interval ${AUTO_MODPES_INTERVAL}s)"
+  echo "Auto Airplane   : $AUTO_AIRPLANE_ENABLED (interval ${AUTO_AIRPLANE_INTERVAL}s)"
+  echo "Log File        : $LOG_FILE"
+
+  if is_systemd_available; then
+    echo ""
+    systemctl status zivpn-automation-modpes.timer --no-pager || true
+    echo ""
+    systemctl status zivpn-automation-airplane.timer --no-pager || true
+  else
+    echo ""
+    echo "Cron entries:"
+    if [[ -f /etc/cron.d/zivpn-automation ]]; then
+      cat /etc/cron.d/zivpn-automation
+    else
+      echo "Tidak ada."
+    fi
+  fi
+}
+
+show_logs() {
+  if [[ -f "$LOG_FILE" ]]; then
+    tail -n 200 "$LOG_FILE"
+  else
+    echo "Log file belum ada: $LOG_FILE"
+  fi
+}
+
+usage() {
+  cat <<USAGE
+Usage: zivpn-automation <command> [target]
+
+Commands:
+  status                Lihat status automation
+  enable [modpes|airplane|all]
+  disable [modpes|airplane|all]
+  restart               Reload schedule (systemd/cron)
+  logs                  Tampilkan log automation
+  run-modpes            Jalankan Auto ModPES sekali
+  run-airplane          Jalankan Auto Airplane Mode sekali
+USAGE
+}
+
+main() {
+  load_config
+  ensure_dirs
+
+  local command="${1:-}"
+  local target="${2:-all}"
+
+  case "$command" in
+    status)
+      show_status
+      ;;
+    enable)
+      case "$target" in
+        modpes)
+          set_config_value "AUTO_MODPES_ENABLED" "true"
+          ;;
+        airplane)
+          set_config_value "AUTO_AIRPLANE_ENABLED" "true"
+          ;;
+        all|*)
+          set_config_value "AUTO_MODPES_ENABLED" "true"
+          set_config_value "AUTO_AIRPLANE_ENABLED" "true"
+          ;;
+      esac
+      load_config
+      apply_schedule
+      ;;
+    disable)
+      case "$target" in
+        modpes)
+          set_config_value "AUTO_MODPES_ENABLED" "false"
+          ;;
+        airplane)
+          set_config_value "AUTO_AIRPLANE_ENABLED" "false"
+          ;;
+        all|*)
+          set_config_value "AUTO_MODPES_ENABLED" "false"
+          set_config_value "AUTO_AIRPLANE_ENABLED" "false"
+          ;;
+      esac
+      load_config
+      apply_schedule
+      ;;
+    restart)
+      apply_schedule
+      ;;
+    logs)
+      show_logs
+      ;;
+    run-modpes)
+      run_modpes
+      ;;
+    run-airplane)
+      run_airplane
+      ;;
+    -h|--help|"")
+      usage
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
