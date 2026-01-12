@@ -121,6 +121,28 @@ Contoh penggunaan:
 
 ---
 
+### Siklus Airplane Mode Android 8–13+
+Script: `scripts/auto-airplane-mode.sh`
+
+Fitur:
+*   Menjalankan siklus `off -> on -> off` dengan interval yang bisa dikonfigurasi.
+*   Mode `once` (sekali jalan) dan `loop` (daemon sederhana).
+*   Helper otomatis memilih metode `cmd connectivity` atau `settings`.
+
+Contoh penggunaan:
+```bash
+./scripts/auto-airplane-mode.sh once 3
+./scripts/auto-airplane-mode.sh loop 10
+AIRPLANE_INTERVAL=7 ./scripts/auto-airplane-mode.sh loop
+```
+
+**Catatan kompatibilitas & permission**:
+*   Kompatibel Android 8–13+ dengan `adb` aktif.
+*   `settings put global` membutuhkan permission **WRITE_SECURE_SETTINGS** atau akses **root**.
+*   Pada beberapa device, `cmd connectivity` juga butuh privilege yang sama.
+
+---
+
 ## 🤖 Telegram Bot Usage
 
 ### Free Bot
