@@ -196,7 +196,7 @@ cat <<'EOF' > /etc/logrotate.d/zivpn-automation
 }
 EOF
 
-run_silent "Configuring Automation Scheduler" "/usr/local/bin/zivpn/zivpn-automation restart"
+run_silent "Configuring Automation Scheduler" "/usr/local/bin/zivpn-automation restart"
 
 mkdir -p /etc/zivpn/protocols
 cat <<'EOF' > /etc/zivpn/torrent-block.rules
