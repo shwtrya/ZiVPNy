@@ -165,6 +165,13 @@ automation_dir="/usr/local/bin/zivpn"
 if [[ -f /usr/local/bin/zivpn ]]; then
   automation_dir="/usr/local/bin/zivpn-automation.d"
 fi
+if [[ -d /usr/local/bin/zivpn-automation ]]; then
+  legacy_dir="/usr/local/bin/zivpn-automation.d"
+  if [[ -e "$legacy_dir" ]]; then
+    legacy_dir="/usr/local/bin/zivpn-automation.d-legacy-$(date +%s)"
+  fi
+  mv /usr/local/bin/zivpn-automation "$legacy_dir"
+fi
 mkdir -p "$automation_dir"
 run_silent "Downloading Auto ModPES Script" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/auto-modpes-android11.sh -O ${automation_dir}/auto-modpes-android11.sh"
 run_silent "Downloading Auto Airplane Script" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/auto-airplane-mode.sh -O ${automation_dir}/auto-airplane-mode.sh"
