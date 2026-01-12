@@ -163,14 +163,13 @@ run_silent "Generating SSL" "openssl req -new -newkey rsa:4096 -days 365 -nodes 
 
 automation_dir="/usr/local/bin/zivpn"
 if [[ -f /usr/local/bin/zivpn ]]; then
-  automation_dir="/usr/local/bin/zivpn-automation"
+  automation_dir="/usr/local/bin/zivpn-automation.d"
 fi
 mkdir -p "$automation_dir"
 run_silent "Downloading Auto ModPES Script" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/auto-modpes-android11.sh -O ${automation_dir}/auto-modpes-android11.sh"
 run_silent "Downloading Auto Airplane Script" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/auto-airplane-mode.sh -O ${automation_dir}/auto-airplane-mode.sh"
-run_silent "Installing Automation Helper" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/zivpn-automation -O ${automation_dir}/zivpn-automation"
-chmod +x "${automation_dir}/auto-modpes-android11.sh" "${automation_dir}/auto-airplane-mode.sh" "${automation_dir}/zivpn-automation"
-ln -sf "${automation_dir}/zivpn-automation" /usr/local/bin/zivpn-automation
+run_silent "Installing Automation Helper" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/scripts/zivpn-automation -O /usr/local/bin/zivpn-automation"
+chmod +x "${automation_dir}/auto-modpes-android11.sh" "${automation_dir}/auto-airplane-mode.sh" /usr/local/bin/zivpn-automation
 
 mkdir -p /var/log/zivpn
 cat <<EOF > /etc/zivpn/automation.conf
