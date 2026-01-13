@@ -335,9 +335,6 @@ func isRequestBodyTooLarge(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, http.ErrBodyTooLarge) {
-		return true
-	}
 	if strings.Contains(err.Error(), "http: request body too large") {
 		return true
 	}
