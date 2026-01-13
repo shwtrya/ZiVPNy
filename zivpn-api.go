@@ -137,7 +137,7 @@ func main() {
 	http.HandleFunc("/api/cron/expire", authMiddleware(checkExpiration))
 	http.HandleFunc("/api/cron/cleanup", authMiddleware(cleanupExpired))
 
-	log.Printf("Server started at :%d", *port)
+	log.Printf("API Server started at :%d", *port)
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", *port),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -240,13 +240,6 @@ func encryptPassword(plain string) (string, error) {
 	return base64.StdEncoding.EncodeToString(payload), nil
 }
 
-func passwordKeySourceHint() string {
-	if strings.TrimSpace(os.Getenv(PasswordKeyEnvVar)) != "" {
-		return "environment variable " + PasswordKeyEnvVar
-	}
-	return "file " + PasswordKeyFile
-}
-
 func decryptPassword(ciphertext string) (string, error) {
 	key, err := getPasswordKey()
 	if err != nil {
@@ -301,7 +294,7 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 func jsonResponse(w http.ResponseWriter, status int, success bool, message string, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(Response{
+	_ = json.NewEncoder(w).Encode(Response{
 		Success: success,
 		Message: message,
 		Data:    data,
@@ -315,7 +308,7 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dest interface{}) bo
 	decoder.DisallowUnknownFields()
 
 	if err := decoder.Decode(dest); err != nil {
-		if isRequestBodyTooLarge(err) {
+		if strings.Contains(err.Error(), "http: request body too large") {
 			jsonResponse(w, http.StatusRequestEntityTooLarge, false, "Request body terlalu besar", nil)
 			return false
 		}
@@ -323,13 +316,9 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dest interface{}) bo
 		return false
 	}
 
-	if decoder.More() {
-		jsonResponse(w, http.StatusBadRequest, false, "Invalid request body", nil)
-		return false
-	}
-
+	// Reject trailing JSON
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		if isRequestBodyTooLarge(err) {
+		if strings.Contains(err.Error(), "http: request body too large") {
 			jsonResponse(w, http.StatusRequestEntityTooLarge, false, "Request body terlalu besar", nil)
 			return false
 		}
@@ -338,16 +327,6 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dest interface{}) bo
 	}
 
 	return true
-}
-
-func isRequestBodyTooLarge(err error) bool {
-	if err == nil {
-		return false
-	}
-	if strings.Contains(err.Error(), "http: request body too large") {
-		return true
-	}
-	return false
 }
 
 func notifyBot(event string, users []string, count int, message string) {
@@ -379,7 +358,7 @@ func notifyBot(event string, users []string, count int, message string) {
 		log.Printf("Failed to send bot notification: %v", err)
 		return
 	}
-	defer resp.Body.Close()
+	_ = resp.Body.Close()
 }
 
 func createUser(w http.ResponseWriter, r *http.Request) {
@@ -452,6 +431,7 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 
 	users, err := loadUsers()
 	if err != nil {
+		log.Printf("loadUsers failed in createUser: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, false, "Gagal membaca database user", nil)
 		return
 	}
@@ -655,14 +635,12 @@ func renewUser(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				currentExp = time.Now()
 			}
-
 			if currentExp.Before(time.Now()) {
 				currentExp = time.Now()
 			}
 
 			newExp := currentExp.Add(time.Duration(req.Days) * 24 * time.Hour)
 			newExpDate = newExp.Format("2006-01-02")
-
 			normalized.Expired = newExpDate
 
 			if normalized.Status == "locked" {
@@ -849,190 +827,26 @@ func getSystemInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	info := map[string]interface{}{
-		"domain":          domain,
-		"public_ip":       publicIP,
-		"private_ip":      privateIP,
-		"domain_resolves": domainResolves,
-		"domain_ips":      domainIPs,
-		"port":            "5667",
-		"service":         "zivpn",
-		"cpu":             getCPUInfo(),
-		"ram":             getRAMInfo(),
-		"disk":            getDiskUsage(),
-		"uptime":          getUptimeInfo(),
-		"load_avg":        getLoadAverage(),
-		"kernel":          getKernelVersion(),
-		"zivpn_version":   getZiVPNVersion(),
-		"max_accounts":    MaxAccounts,
-		"used_accounts":   usedAccounts,
-		"available_accounts": func() int {
-			available := MaxAccounts - usedAccounts
-			if available < 0 {
-				return 0
-			}
-			return available
-		}(),
+		"domain":             domain,
+		"public_ip":          publicIP,
+		"private_ip":         privateIP,
+		"domain_resolves":    domainResolves,
+		"domain_ips":         domainIPs,
+		"port":               "5667",
+		"service":            "zivpn",
+		"max_accounts":       MaxAccounts,
+		"used_accounts":      usedAccounts,
+		"available_accounts": max(0, MaxAccounts-usedAccounts),
 	}
 
 	jsonResponse(w, http.StatusOK, true, "System Info", info)
 }
 
-func getCPUInfo() string {
-	data, err := ioutil.ReadFile("/proc/cpuinfo")
-	if err != nil {
-		return "Unknown"
+func max(a, b int) int {
+	if a > b {
+		return a
 	}
-
-	model := ""
-	cores := 0
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "model name") && model == "" {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				model = strings.TrimSpace(parts[1])
-			}
-		}
-		if strings.HasPrefix(line, "processor") {
-			cores++
-		}
-	}
-
-	if model == "" {
-		model = "Unknown"
-	}
-	if cores == 0 {
-		return model
-	}
-	coreLabel := "cores"
-	if cores == 1 {
-		coreLabel = "core"
-	}
-	return fmt.Sprintf("%s (%d %s)", model, cores, coreLabel)
-}
-
-func getRAMInfo() string {
-	data, err := ioutil.ReadFile("/proc/meminfo")
-	if err != nil {
-		return "Unknown"
-	}
-
-	var totalKB, availableKB int64
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "MemTotal:") {
-			fmt.Sscanf(line, "MemTotal: %d kB", &totalKB)
-		}
-		if strings.HasPrefix(line, "MemAvailable:") {
-			fmt.Sscanf(line, "MemAvailable: %d kB", &availableKB)
-		}
-	}
-
-	if totalKB == 0 {
-		return "Unknown"
-	}
-	usedKB := totalKB - availableKB
-	if usedKB < 0 {
-		usedKB = 0
-	}
-	return fmt.Sprintf("%s / %s", formatKB(usedKB), formatKB(totalKB))
-}
-
-func getDiskUsage() string {
-	cmd := exec.Command("df", "-h", "/")
-	output, err := cmd.Output()
-	if err != nil {
-		return "Unknown"
-	}
-
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(lines) < 2 {
-		return "Unknown"
-	}
-	fields := strings.Fields(lines[1])
-	if len(fields) < 5 {
-		return "Unknown"
-	}
-	size := fields[1]
-	used := fields[2]
-	percent := fields[4]
-	return fmt.Sprintf("%s/%s (%s)", used, size, percent)
-}
-
-func getUptimeInfo() string {
-	data, err := ioutil.ReadFile("/proc/uptime")
-	if err != nil {
-		return "Unknown"
-	}
-	fields := strings.Fields(string(data))
-	if len(fields) == 0 {
-		return "Unknown"
-	}
-	seconds, err := strconv.ParseFloat(fields[0], 64)
-	if err != nil {
-		return "Unknown"
-	}
-	return formatUptime(seconds)
-}
-
-func getLoadAverage() string {
-	data, err := ioutil.ReadFile("/proc/loadavg")
-	if err != nil {
-		return "Unknown"
-	}
-	fields := strings.Fields(string(data))
-	if len(fields) < 3 {
-		return "Unknown"
-	}
-	return strings.Join(fields[:3], " ")
-}
-
-func getKernelVersion() string {
-	cmd := exec.Command("uname", "-r")
-	output, err := cmd.Output()
-	if err != nil {
-		return "Unknown"
-	}
-	return strings.TrimSpace(string(output))
-}
-
-func getZiVPNVersion() string {
-	paths := []string{"/etc/zivpn/version", "/etc/zivpn/VERSION"}
-	for _, path := range paths {
-		if data, err := ioutil.ReadFile(path); err == nil {
-			version := strings.TrimSpace(string(data))
-			if version != "" {
-				return version
-			}
-		}
-	}
-	return "Unknown"
-}
-
-func formatKB(valueKB int64) string {
-	if valueKB >= 1024*1024 {
-		return fmt.Sprintf("%.2f GB", float64(valueKB)/(1024*1024))
-	}
-	return fmt.Sprintf("%.0f MB", float64(valueKB)/1024)
-}
-
-func formatUptime(seconds float64) string {
-	duration := time.Duration(seconds) * time.Second
-	days := int(duration.Hours()) / 24
-	hours := int(duration.Hours()) % 24
-	minutes := int(duration.Minutes()) % 60
-
-	parts := []string{}
-	if days > 0 {
-		parts = append(parts, fmt.Sprintf("%dd", days))
-	}
-	if hours > 0 || days > 0 {
-		parts = append(parts, fmt.Sprintf("%dh", hours))
-	}
-	parts = append(parts, fmt.Sprintf("%dm", minutes))
-	return strings.Join(parts, " ")
+	return b
 }
 
 func checkExpiration(w http.ResponseWriter, r *http.Request) {
@@ -1060,7 +874,7 @@ func checkExpiration(w http.ResponseWriter, r *http.Request) {
 	for _, u := range users {
 		normalized := normalizeStoredUser(u)
 		if normalized.Expired < today && normalized.Status == "active" {
-			log.Printf("User %s expired (Exp: %s). Revoking access.\n", maskCredential(normalized.Username), normalized.Expired)
+			log.Printf("User %s expired (Exp: %s). Revoking access.", maskCredential(normalized.Username), normalized.Expired)
 			if usesProtocol(normalized.Protocols, "udp") {
 				config.Auth.Config = removeFromList(config.Auth.Config, normalized.Password)
 			}
@@ -1088,14 +902,13 @@ func checkExpiration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if revokedCount > 0 {
-		restartService()
+		_ = restartService()
 		notifyBot("expire", revokedUsers, revokedCount, "")
 	}
 
 	jsonResponse(w, http.StatusOK, true, fmt.Sprintf("Expiration check complete. Revoked: %d", revokedCount), nil)
 }
 
-// cleanupExpired menghapus semua akun expired dari config.json DAN users.json
 func cleanupExpired(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		jsonResponse(w, http.StatusMethodNotAllowed, false, "Method not allowed", nil)
@@ -1119,7 +932,6 @@ func cleanupExpired(w http.ResponseWriter, r *http.Request) {
 
 	today := time.Now().Format("2006-01-02")
 
-	// Collect expired passwords
 	expiredPasswords := make(map[string]bool)
 	for _, u := range users {
 		normalized := normalizeStoredUser(u)
@@ -1133,7 +945,6 @@ func cleanupExpired(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Remove from users.json
 	activeUsers := []UserStore{}
 	for _, u := range users {
 		normalized := normalizeStoredUser(u)
@@ -1142,7 +953,6 @@ func cleanupExpired(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Remove from config.json
 	activeConfig := []string{}
 	for _, p := range config.Auth.Config {
 		if !expiredPasswords[p] {
@@ -1151,7 +961,6 @@ func cleanupExpired(w http.ResponseWriter, r *http.Request) {
 	}
 	config.Auth.Config = activeConfig
 
-	// Save both
 	if err := saveUsers(activeUsers); err != nil {
 		log.Printf("saveUsers failed in cleanupExpired: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan users.json", nil)
@@ -1168,8 +977,7 @@ func cleanupExpired(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Restart service
-	restartService()
+	_ = restartService()
 
 	deletedCount := len(expiredPasswords)
 	deletedList := []string{}
@@ -1183,29 +991,6 @@ func cleanupExpired(w http.ResponseWriter, r *http.Request) {
 		"deleted_count": deletedCount,
 		"deleted_users": deletedList,
 	})
-}
-
-func revokeAccess(password string) {
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	config, err := loadConfig()
-	if err == nil {
-		newConfigAuth := []string{}
-		changed := false
-		for _, p := range config.Auth.Config {
-			if p == password {
-				changed = true
-			} else {
-				newConfigAuth = append(newConfigAuth, p)
-			}
-		}
-		if changed {
-			config.Auth.Config = newConfigAuth
-			saveConfig(config)
-			restartService()
-		}
-	}
 }
 
 func enableUser(password string) {
@@ -1227,8 +1012,8 @@ func enableUser(password string) {
 
 	if !exists {
 		config.Auth.Config = append(config.Auth.Config, password)
-		saveConfig(config)
-		restartService()
+		_ = saveConfig(config)
+		_ = restartService()
 	}
 }
 
@@ -1338,12 +1123,12 @@ func syncProtocolConfigs(users []UserStore) error {
 	}
 
 	for protocol := range supportedProtocols {
-		config := ProtocolConfig{
+		cfg := ProtocolConfig{
 			Protocol:  protocol,
 			UpdatedAt: time.Now().Format(time.RFC3339),
 			Users:     usersByProtocol[protocol],
 		}
-		data, err := json.MarshalIndent(config, "", "  ")
+		data, err := json.MarshalIndent(cfg, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -1381,6 +1166,7 @@ func loadUsers() ([]UserStore, error) {
 		}
 		return nil, err
 	}
+
 	var records []struct {
 		Username        string                       `json:"username"`
 		Password        string                       `json:"password"`
@@ -1391,6 +1177,7 @@ func loadUsers() ([]UserStore, error) {
 		ProtocolOptions map[string]map[string]string `json:"protocol_options,omitempty"`
 		IpLimit         int                          `json:"ip_limit"`
 	}
+
 	if err := json.Unmarshal(file, &records); err != nil {
 		timestamp := time.Now().Format("20060102-150405")
 		backupPath := fmt.Sprintf("%s.bak-%s", UserDB, timestamp)
@@ -1402,16 +1189,27 @@ func loadUsers() ([]UserStore, error) {
 		}
 		return []UserStore{}, nil
 	}
+
 	users = make([]UserStore, 0, len(records))
 	for _, record := range records {
 		password := strings.TrimSpace(record.Password)
+
 		if record.PasswordEnc != "" {
-			decoded, err := decryptPassword(record.PasswordEnc)
-			if err != nil {
-				return nil, fmt.Errorf("failed to decrypt stored password for user %s: %w", record.Username, err)
+			decoded, derr := decryptPassword(record.PasswordEnc)
+			if derr != nil {
+				// TOLERANT: jangan bikin API mati gara-gara decrypt gagal.
+				// fallback ke password plain kalau ada.
+				log.Printf("WARN: decrypt failed for user=%s (%v). Fallback to plain password.", maskCredential(record.Username), derr)
+				if password == "" {
+					// Kalau dua-duanya kosong, skip
+					log.Printf("WARN: skipping user=%s because password fields unusable", maskCredential(record.Username))
+					continue
+				}
+			} else {
+				password = decoded
 			}
-			password = decoded
 		}
+
 		users = append(users, UserStore{
 			Username:        record.Username,
 			Password:        password,
@@ -1426,22 +1224,33 @@ func loadUsers() ([]UserStore, error) {
 	return users, nil
 }
 
+// ✅ FINAL: ENCRYPT OPTIONAL (kalau key tidak ada → simpan plain, tidak error)
 func saveUsers(users []UserStore) error {
 	records := make([]UserStore, 0, len(users))
+
 	for _, user := range users {
-		encrypted, err := encryptPassword(user.Password)
-		if err != nil {
-			return fmt.Errorf("failed to encrypt password for user %s with key from %s: %w", user.Username, passwordKeySourceHint(), err)
-		}
 		record := user
-		record.PasswordEnc = encrypted
-		record.Password = ""
+
+		encrypted, err := encryptPassword(user.Password)
+		if err == nil {
+			record.PasswordEnc = encrypted
+			record.Password = ""
+		} else {
+			// fallback mode: still save, do not break API create user
+			log.Printf("WARN: password encryption skipped for user=%s (%v)", maskCredential(user.Username), err)
+			record.PasswordEnc = ""
+			// Simpan plain password (risk security, tapi sesuai request: jangan wajib encrypt)
+			record.Password = user.Password
+		}
+
 		records = append(records, record)
 	}
+
 	data, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return err
 	}
+
 	userDir := filepath.Dir(UserDB)
 	if err := os.MkdirAll(userDir, 0755); err != nil {
 		reason := "unknown"
@@ -1453,6 +1262,7 @@ func saveUsers(users []UserStore) error {
 		}
 		return fmt.Errorf("failed to create user db directory %s (%s): %w", userDir, reason, err)
 	}
+
 	return ioutil.WriteFile(UserDB, data, 0644)
 }
 
@@ -1523,7 +1333,6 @@ type OnlineAccount struct {
 	LastSeen string `json:"last_seen"`
 }
 
-// Expected log format tokens include user/account and ip fields like "user=", "account=", "ip=".
 var logUserRegexes = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\buser(?:name)?\s*[:=]\s*"?([a-zA-Z0-9._-]+)"?`),
 	regexp.MustCompile(`(?i)\baccount\s*[:=]\s*"?([a-zA-Z0-9._-]+)"?`),
@@ -1531,7 +1340,6 @@ var logUserRegexes = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\busr\s*[:=]\s*"?([a-zA-Z0-9._-]+)"?`),
 }
 
-// Expected log format tokens include IP fields like "ip=", "src=", "remote=", or "raddr=".
 var logIPRegexes = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\b(?:ip|addr|remote|src|raddr|peer)\s*[:=]\s*(\d+\.\d+\.\d+\.\d+)`),
 	regexp.MustCompile(`\bfrom\s+(\d+\.\d+\.\d+\.\d+)`),
@@ -1574,7 +1382,6 @@ func collectOnlineUsers() ([]OnlineAccount, error) {
 
 	selected := make(map[string]onlineLogEntry)
 	for _, entry := range logEntries {
-		// If conntrack is available but empty, fall back to log-derived entries instead of filtering them out.
 		if len(conntrackIPs) > 0 {
 			if !conntrackIPs[entry.IP] {
 				continue
