@@ -367,6 +367,21 @@ Setelah mengubah MTU, restart service: `systemctl restart zivpn`.
 
 ---
 
+## 📡 Keepalive/Retry (Client-side)
+Core ZiVPN pada installer ini belum mendokumentasikan opsi **keepalive**/**retry** dari sisi server (cek `/usr/local/bin/zivpn --help` di server Anda). Karena itu, **keepalive perlu diaktifkan di sisi client** agar koneksi UDP tidak idle terlalu lama (membantu NAT/conntrack tetap hidup, terutama di jaringan seluler).
+
+Contoh **keepalive** sederhana dari client (kirim paket UDP kecil setiap 25 detik):
+```bash
+while true; do
+  echo -n "ka" | nc -u -w1 <IP_SERVER> 5667
+  sleep 25
+done
+```
+
+Jika client Anda punya opsi ping/keepalive bawaan, cukup set interval (misalnya 20–30 detik) agar koneksi tetap aktif.
+
+---
+
 ## �🛠️ Pemecahan Masalah (Troubleshooting)
 
 ### 1. Log "TCP error" di Jurnal
