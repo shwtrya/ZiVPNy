@@ -415,13 +415,15 @@ cat <<EOF > /etc/systemd/system/zivpn.service
 [Unit]
 Description=ZIVPN UDP VPN Server
 After=network.target
+StartLimitBurst=3
+StartLimitIntervalSec=300
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/etc/zivpn
 ExecStart=/usr/local/bin/zivpn server -c /etc/zivpn/config.json
-Restart=always
+Restart=on-failure
 RestartSec=3
 LimitNOFILE=65535
 Environment=ZIVPN_LOG_LEVEL=info
