@@ -1392,7 +1392,15 @@ func loadUsers() ([]UserStore, error) {
 		IpLimit         int                          `json:"ip_limit"`
 	}
 	if err := json.Unmarshal(file, &records); err != nil {
-		return nil, err
+		timestamp := time.Now().Format("20060102-150405")
+		backupPath := fmt.Sprintf("%s.bak-%s", UserDB, timestamp)
+		log.Printf("WARNING: invalid users JSON detected; attempting backup to %s; returning empty user list", backupPath)
+		if renameErr := os.Rename(UserDB, backupPath); renameErr != nil {
+			log.Printf("WARNING: failed to backup %s to %s: %v", UserDB, backupPath, renameErr)
+		} else {
+			log.Printf("WARNING: backup completed for %s to %s", UserDB, backupPath)
+		}
+		return []UserStore{}, nil
 	}
 	users = make([]UserStore, 0, len(records))
 	for _, record := range records {
