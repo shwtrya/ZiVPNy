@@ -136,7 +136,14 @@ func main() {
 	http.HandleFunc("/api/cron/cleanup", authMiddleware(cleanupExpired))
 
 	log.Printf("Server started at :%d", *port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *port), nil))
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%d", *port),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	log.Fatal(server.ListenAndServe())
 }
 
 func loadAPIKey() string {
