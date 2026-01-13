@@ -36,6 +36,42 @@ run_silent() {
   fi
 }
 
+detect_mtu() {
+  local endpoint="${1:-1.1.1.1}"
+  local mtu=""
+  local default_mtu=1400
+
+  if command -v ping >/dev/null 2>&1; then
+    local low=1200
+    local high=1472
+    local best=""
+
+    while [ "$low" -le "$high" ]; do
+      local mid=$(( (low + high) / 2 ))
+      if ping -M do -c 1 -W 1 -s "$mid" "$endpoint" >/dev/null 2>&1; then
+        best="$mid"
+        low=$((mid + 1))
+      else
+        high=$((mid - 1))
+      fi
+    done
+
+    if [ -n "$best" ]; then
+      mtu=$((best + 28))
+    fi
+  fi
+
+  if [ -z "$mtu" ] && command -v tracepath >/dev/null 2>&1; then
+    mtu=$(tracepath -n -m 5 "$endpoint" 2>/dev/null | awk '/pmtu/ {print $3; exit}')
+  fi
+
+  if [ -z "$mtu" ]; then
+    mtu="$default_mtu"
+  fi
+
+  echo "$mtu"
+}
+
 clear
 echo -e "${BOLD}ZiVPN UDP Installer${RESET}"
 echo -e "${GRAY}AutoFTbot Edition${RESET}"
@@ -158,6 +194,12 @@ echo "$domain" > /etc/zivpn/domain
 echo "$api_key" > /etc/zivpn/apikey
 run_silent "Configuring" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/config.json -O /etc/zivpn/config.json"
 run_silent "Configuring packages" "wget -q https://raw.githubusercontent.com/shwtrya/ZiVPNy/main/packages.json -O /etc/zivpn/packages.json"
+
+print_task "Detecting MTU"
+mtu_endpoint="1.1.1.1"
+mtu_value=$(detect_mtu "$mtu_endpoint")
+echo "$mtu_value" > /etc/zivpn/mtu
+print_done "MTU detected: ${CYAN}${mtu_value}${RESET}"
 
 run_silent "Generating SSL" "openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 -subj '/C=ID/ST=Jawa Barat/L=Bandung/O=AutoFTbot/OU=IT Department/CN=$domain' -keyout /etc/zivpn/zivpn.key -out /etc/zivpn/zivpn.crt"
 
@@ -411,6 +453,18 @@ net.ipv4.udp_wmem_min=16384
 END
 sysctl --system &>/dev/null
 
+mtu_flag=""
+mtu_arg=""
+if /usr/local/bin/zivpn --help 2>&1 | grep -q -- "--mtu"; then
+  mtu_flag="--mtu"
+elif /usr/local/bin/zivpn --help 2>&1 | grep -q -- "--mssfix"; then
+  mtu_flag="--mssfix"
+fi
+
+if [ -n "$mtu_flag" ] && [ -f /etc/zivpn/mtu ]; then
+  mtu_arg="${mtu_flag} $(cat /etc/zivpn/mtu)"
+fi
+
 cat <<EOF > /etc/systemd/system/zivpn.service
 [Unit]
 Description=ZIVPN UDP VPN Server
@@ -422,7 +476,7 @@ StartLimitIntervalSec=300
 Type=simple
 User=root
 WorkingDirectory=/etc/zivpn
-ExecStart=/usr/local/bin/zivpn server -c /etc/zivpn/config.json
+ExecStart=/usr/local/bin/zivpn server -c /etc/zivpn/config.json ${mtu_arg}
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65535
