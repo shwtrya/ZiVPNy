@@ -5,9 +5,14 @@ package main
 
 import (
 	"bufio"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
@@ -23,19 +28,22 @@ import (
 )
 
 const (
-	ConfigFile   = "/etc/zivpn/config.json"
-	UserDB       = "/etc/zivpn/users.json"
-	DomainFile   = "/etc/zivpn/domain"
-	ApiKeyFile   = "/etc/zivpn/apikey"
-	Port         = "/etc/zivpn/api_port"
-	PortFile     = "/etc/zivpn/port"
-	ProtocolDir  = "/etc/zivpn/protocols"
-	PackagesFile = "/etc/zivpn/packages.json"
-	LogFile      = "/var/log/zivpn.log"
-	BotNotifyURL = "http://127.0.0.1:9871/notify"
-	MaxAccounts  = 20
-	ApiKeyEnvVar = "ZIVPN_API_KEY"
-	ApiKeyMinLen = 16
+	ConfigFile          = "/etc/zivpn/config.json"
+	UserDB              = "/etc/zivpn/users.json"
+	DomainFile          = "/etc/zivpn/domain"
+	ApiKeyFile          = "/etc/zivpn/apikey"
+	PasswordKeyFile     = "/etc/zivpn/password.key"
+	Port                = "/etc/zivpn/api_port"
+	PortFile            = "/etc/zivpn/port"
+	ProtocolDir         = "/etc/zivpn/protocols"
+	PackagesFile        = "/etc/zivpn/packages.json"
+	LogFile             = "/var/log/zivpn.log"
+	BotNotifyURL        = "http://127.0.0.1:9871/notify"
+	MaxAccounts         = 20
+	ApiKeyEnvVar        = "ZIVPN_API_KEY"
+	PasswordKeyEnvVar   = "ZIVPN_PASSWORD_KEY"
+	ApiKeyMinLen        = 16
+	PasswordKeyByteSize = 32
 )
 
 var AuthToken string
@@ -74,7 +82,8 @@ type UserRequest struct {
 
 type UserStore struct {
 	Username        string                       `json:"username"`
-	Password        string                       `json:"password"`
+	Password        string                       `json:"-"`
+	PasswordEnc     string                       `json:"password_enc,omitempty"`
 	Expired         string                       `json:"expired"`
 	Status          string                       `json:"status"`
 	Protocols       []string                     `json:"protocols"`
@@ -105,6 +114,9 @@ type Package struct {
 }
 
 var mutex = &sync.Mutex{}
+var passwordKeyOnce sync.Once
+var passwordKey []byte
+var passwordKeyErr error
 
 func main() {
 	port := flag.Int("port", 8080, "Port to run the API server on")
@@ -151,6 +163,110 @@ func validateAPIKey(key, source string) {
 	if !apiKeyFormat.MatchString(key) {
 		log.Fatalf("API key from %s has invalid format", source)
 	}
+}
+
+func getPasswordKey() ([]byte, error) {
+	passwordKeyOnce.Do(func() {
+		key, err := loadPasswordKey()
+		if err != nil {
+			passwordKeyErr = err
+			return
+		}
+		passwordKey = key
+	})
+	if passwordKeyErr != nil {
+		return nil, passwordKeyErr
+	}
+	return passwordKey, nil
+}
+
+func loadPasswordKey() ([]byte, error) {
+	envKey := strings.TrimSpace(os.Getenv(PasswordKeyEnvVar))
+	if envKey != "" {
+		return decodePasswordKey(envKey, "environment variable "+PasswordKeyEnvVar)
+	}
+
+	keyBytes, err := os.ReadFile(PasswordKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("missing password encryption key (set %s or provide %s)", PasswordKeyEnvVar, PasswordKeyFile)
+	}
+	return decodePasswordKey(strings.TrimSpace(string(keyBytes)), "file "+PasswordKeyFile)
+}
+
+func decodePasswordKey(raw, source string) ([]byte, error) {
+	if raw == "" {
+		return nil, fmt.Errorf("password key from %s is empty", source)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, fmt.Errorf("password key from %s must be base64: %w", source, err)
+	}
+	if len(decoded) != PasswordKeyByteSize {
+		return nil, fmt.Errorf("password key from %s must be %d bytes after base64 decode", source, PasswordKeyByteSize)
+	}
+	return decoded, nil
+}
+
+func encryptPassword(plain string) (string, error) {
+	key, err := getPasswordKey()
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+	ciphertext := gcm.Seal(nil, nonce, []byte(plain), nil)
+	payload := append(nonce, ciphertext...)
+	return base64.StdEncoding.EncodeToString(payload), nil
+}
+
+func decryptPassword(ciphertext string) (string, error) {
+	key, err := getPasswordKey()
+	if err != nil {
+		return "", err
+	}
+	raw, err := base64.StdEncoding.DecodeString(ciphertext)
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	if len(raw) < gcm.NonceSize() {
+		return "", fmt.Errorf("encrypted password payload too short")
+	}
+	nonce := raw[:gcm.NonceSize()]
+	data := raw[gcm.NonceSize():]
+	plain, err := gcm.Open(nil, nonce, data, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plain), nil
+}
+
+func maskCredential(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "unknown"
+	}
+	if len(trimmed) <= 2 {
+		return strings.Repeat("*", len(trimmed))
+	}
+	return trimmed[:1] + strings.Repeat("*", len(trimmed)-2) + trimmed[len(trimmed)-1:]
 }
 
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -334,7 +450,6 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 
 	jsonResponse(w, http.StatusOK, true, "User berhasil dibuat", map[string]interface{}{
 		"username":  username,
-		"password":  password,
 		"expired":   expDate,
 		"domain":    domain,
 		"protocols": protocols,
@@ -885,7 +1000,7 @@ func checkExpiration(w http.ResponseWriter, r *http.Request) {
 	for _, u := range users {
 		normalized := normalizeStoredUser(u)
 		if normalized.Expired < today && normalized.Status == "active" {
-			log.Printf("User %s expired (Exp: %s). Revoking access.\n", normalized.Password, normalized.Expired)
+			log.Printf("User %s expired (Exp: %s). Revoking access.\n", maskCredential(normalized.Username), normalized.Expired)
 			if usesProtocol(normalized.Protocols, "udp") {
 				config.Auth.Config = removeFromList(config.Auth.Config, normalized.Password)
 			}
@@ -1204,12 +1319,56 @@ func loadUsers() ([]UserStore, error) {
 		}
 		return nil, err
 	}
-	err = json.Unmarshal(file, &users)
-	return users, err
+	var records []struct {
+		Username        string                       `json:"username"`
+		Password        string                       `json:"password"`
+		PasswordEnc     string                       `json:"password_enc"`
+		Expired         string                       `json:"expired"`
+		Status          string                       `json:"status"`
+		Protocols       []string                     `json:"protocols"`
+		ProtocolOptions map[string]map[string]string `json:"protocol_options,omitempty"`
+		IpLimit         int                          `json:"ip_limit"`
+	}
+	if err := json.Unmarshal(file, &records); err != nil {
+		return nil, err
+	}
+	users = make([]UserStore, 0, len(records))
+	for _, record := range records {
+		password := strings.TrimSpace(record.Password)
+		if record.PasswordEnc != "" {
+			decoded, err := decryptPassword(record.PasswordEnc)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decrypt stored password for user %s: %w", record.Username, err)
+			}
+			password = decoded
+		}
+		users = append(users, UserStore{
+			Username:        record.Username,
+			Password:        password,
+			PasswordEnc:     record.PasswordEnc,
+			Expired:         record.Expired,
+			Status:          record.Status,
+			Protocols:       record.Protocols,
+			ProtocolOptions: record.ProtocolOptions,
+			IpLimit:         record.IpLimit,
+		})
+	}
+	return users, nil
 }
 
 func saveUsers(users []UserStore) error {
-	data, err := json.MarshalIndent(users, "", "  ")
+	records := make([]UserStore, 0, len(users))
+	for _, user := range users {
+		encrypted, err := encryptPassword(user.Password)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt password for user %s: %w", user.Username, err)
+		}
+		record := user
+		record.PasswordEnc = encrypted
+		record.Password = ""
+		records = append(records, record)
+	}
+	data, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return err
 	}
