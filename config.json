@@ -3,6 +3,8 @@
   "cert": "/etc/zivpn/zivpn.crt",
   "key": "/etc/zivpn/zivpn.key",
   "obfs": "zivpn",
+  "mtu": "auto",
+  "mtu_endpoint": "1.1.1.1",
   "auth": {
     "mode": "passwords",
     "config": [

@@ -354,6 +354,19 @@ Anda dapat mengimpor koleksi API lengkap ke Postman menggunakan file JSON beriku
 
 ---
 
+## 📶 MTU (Auto/Manual)
+Installer akan menghitung MTU menggunakan `ping -M do` (fallback `tracepath`) ke endpoint publik (default `1.1.1.1`) dan menyimpan hasilnya ke `/etc/zivpn/mtu`.
+
+*   Jika binary core mendukung `--mtu` atau `--mssfix`, unit systemd otomatis menyuplai nilai dari `/etc/zivpn/mtu`.
+*   Jika core belum mendukung, Anda tetap bisa mengatur MTU manual/otomatis melalui konfigurasi di `/etc/zivpn/config.json`:
+    *   `"mtu": "auto"` untuk memakai kalkulasi otomatis.
+    *   `"mtu": 1200` (contoh) untuk nilai manual.
+    *   `"mtu_endpoint": "1.1.1.1"` untuk mengganti target pengukuran.
+
+Setelah mengubah MTU, restart service: `systemctl restart zivpn`.
+
+---
+
 ## �🛠️ Pemecahan Masalah (Troubleshooting)
 
 ### 1. Log "TCP error" di Jurnal
