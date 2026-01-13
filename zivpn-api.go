@@ -153,7 +153,7 @@ func loadAPIKey() string {
 		return envKey
 	}
 
-	keyBytes, err := os.ReadFile(ApiKeyFile)
+	keyBytes, err := ioutil.ReadFile(ApiKeyFile)
 	if err != nil {
 		log.Fatalf("Failed to read API key file %s: %v", ApiKeyFile, err)
 	}
@@ -195,7 +195,7 @@ func loadPasswordKey() ([]byte, error) {
 		return decodePasswordKey(envKey, "environment variable "+PasswordKeyEnvVar)
 	}
 
-	keyBytes, err := os.ReadFile(PasswordKeyFile)
+	keyBytes, err := ioutil.ReadFile(PasswordKeyFile)
 	if err != nil {
 		return nil, fmt.Errorf("missing password encryption key (set %s or provide %s)", PasswordKeyEnvVar, PasswordKeyFile)
 	}
@@ -306,8 +306,7 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dest interface{}) bo
 	decoder.DisallowUnknownFields()
 
 	if err := decoder.Decode(dest); err != nil {
-		var maxBytesErr *http.MaxBytesError
-		if errors.As(err, &maxBytesErr) {
+		if isRequestBodyTooLarge(err) {
 			jsonResponse(w, http.StatusRequestEntityTooLarge, false, "Request body terlalu besar", nil)
 			return false
 		}
@@ -321,8 +320,7 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dest interface{}) bo
 	}
 
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		var maxBytesErr *http.MaxBytesError
-		if errors.As(err, &maxBytesErr) {
+		if isRequestBodyTooLarge(err) {
 			jsonResponse(w, http.StatusRequestEntityTooLarge, false, "Request body terlalu besar", nil)
 			return false
 		}
@@ -331,6 +329,19 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dest interface{}) bo
 	}
 
 	return true
+}
+
+func isRequestBodyTooLarge(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, http.ErrBodyTooLarge) {
+		return true
+	}
+	if strings.Contains(err.Error(), "http: request body too large") {
+		return true
+	}
+	return false
 }
 
 func notifyBot(event string, users []string, count int, message string) {
