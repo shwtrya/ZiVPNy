@@ -237,6 +237,13 @@ func encryptPassword(plain string) (string, error) {
 	return base64.StdEncoding.EncodeToString(payload), nil
 }
 
+func passwordKeySourceHint() string {
+	if strings.TrimSpace(os.Getenv(PasswordKeyEnvVar)) != "" {
+		return "environment variable " + PasswordKeyEnvVar
+	}
+	return "file " + PasswordKeyFile
+}
+
 func decryptPassword(ciphertext string) (string, error) {
 	key, err := getPasswordKey()
 	if err != nil {
@@ -478,6 +485,7 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 	users = append(users, newUser)
 
 	if err := saveUsers(users); err != nil {
+		log.Printf("saveUsers failed in createUser: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan database user", nil)
 		return
 	}
@@ -573,6 +581,7 @@ func deleteUser(w http.ResponseWriter, r *http.Request) {
 
 	if foundInDB {
 		if err := saveUsers(newUsers); err != nil {
+			log.Printf("saveUsers failed in deleteUser: %v", err)
 			jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan database user", nil)
 			return
 		}
@@ -710,6 +719,7 @@ func renewUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := saveUsers(newUsers); err != nil {
+		log.Printf("saveUsers failed in renewUser: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan database user", nil)
 		return
 	}
@@ -1059,6 +1069,7 @@ func checkExpiration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := saveUsers(updatedUsers); err != nil {
+		log.Printf("saveUsers failed in checkExpiration: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan database user", nil)
 		return
 	}
@@ -1139,6 +1150,7 @@ func cleanupExpired(w http.ResponseWriter, r *http.Request) {
 
 	// Save both
 	if err := saveUsers(activeUsers); err != nil {
+		log.Printf("saveUsers failed in cleanupExpired: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan users.json", nil)
 		return
 	}
@@ -1408,7 +1420,7 @@ func saveUsers(users []UserStore) error {
 	for _, user := range users {
 		encrypted, err := encryptPassword(user.Password)
 		if err != nil {
-			return fmt.Errorf("failed to encrypt password for user %s: %w", user.Username, err)
+			return fmt.Errorf("failed to encrypt password for user %s with key from %s: %w", user.Username, passwordKeySourceHint(), err)
 		}
 		record := user
 		record.PasswordEnc = encrypted
