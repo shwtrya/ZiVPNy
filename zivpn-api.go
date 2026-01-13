@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -19,11 +20,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -1430,6 +1433,17 @@ func saveUsers(users []UserStore) error {
 	data, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return err
+	}
+	userDir := filepath.Dir(UserDB)
+	if err := os.MkdirAll(userDir, 0755); err != nil {
+		reason := "unknown"
+		switch {
+		case os.IsPermission(err):
+			reason = "permission denied"
+		case errors.Is(err, syscall.EROFS):
+			reason = "read-only file system"
+		}
+		return fmt.Errorf("failed to create user db directory %s (%s): %w", userDir, reason, err)
 	}
 	return ioutil.WriteFile(UserDB, data, 0644)
 }
