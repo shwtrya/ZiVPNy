@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -44,6 +45,7 @@ const (
 	PasswordKeyEnvVar   = "ZIVPN_PASSWORD_KEY"
 	ApiKeyMinLen        = 16
 	PasswordKeyByteSize = 32
+	MaxRequestBodyBytes = 2 << 20
 )
 
 var AuthToken string
@@ -290,6 +292,40 @@ func jsonResponse(w http.ResponseWriter, status int, success bool, message strin
 	})
 }
 
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, dest interface{}) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodyBytes)
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(dest); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			jsonResponse(w, http.StatusRequestEntityTooLarge, false, "Request body terlalu besar", nil)
+			return false
+		}
+		jsonResponse(w, http.StatusBadRequest, false, "Invalid request body", nil)
+		return false
+	}
+
+	if decoder.More() {
+		jsonResponse(w, http.StatusBadRequest, false, "Invalid request body", nil)
+		return false
+	}
+
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			jsonResponse(w, http.StatusRequestEntityTooLarge, false, "Request body terlalu besar", nil)
+			return false
+		}
+		jsonResponse(w, http.StatusBadRequest, false, "Invalid request body", nil)
+		return false
+	}
+
+	return true
+}
+
 func notifyBot(event string, users []string, count int, message string) {
 	payload := BotNotification{
 		Event:   event,
@@ -329,8 +365,7 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req UserRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonResponse(w, http.StatusBadRequest, false, "Invalid request body", nil)
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -464,8 +499,7 @@ func deleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req UserRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonResponse(w, http.StatusBadRequest, false, "Invalid request body", nil)
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -552,8 +586,7 @@ func renewUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req UserRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonResponse(w, http.StatusBadRequest, false, "Invalid request body", nil)
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
