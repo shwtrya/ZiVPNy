@@ -34,9 +34,11 @@ const (
 	LogFile      = "/var/log/zivpn.log"
 	BotNotifyURL = "http://127.0.0.1:9871/notify"
 	MaxAccounts  = 20
+	ApiKeyEnvVar = "ZIVPN_API_KEY"
+	ApiKeyMinLen = 16
 )
 
-var AuthToken = "AutoFtBot-agskjgdvsbdreiWG1234512SDKrqw"
+var AuthToken string
 
 var supportedProtocols = map[string]bool{
 	"udp":      true,
@@ -47,6 +49,7 @@ var supportedProtocols = map[string]bool{
 }
 
 var defaultProtocols = []string{"udp"}
+var apiKeyFormat = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 type Config struct {
 	Listen string `json:"listen"`
@@ -107,9 +110,7 @@ func main() {
 	port := flag.Int("port", 8080, "Port to run the API server on")
 	flag.Parse()
 
-	if keyBytes, err := ioutil.ReadFile(ApiKeyFile); err == nil {
-		AuthToken = strings.TrimSpace(string(keyBytes))
-	}
+	AuthToken = loadAPIKey()
 
 	http.HandleFunc("/api/user/create", authMiddleware(createUser))
 	http.HandleFunc("/api/user/delete", authMiddleware(deleteUser))
@@ -122,6 +123,34 @@ func main() {
 
 	log.Printf("Server started at :%d", *port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *port), nil))
+}
+
+func loadAPIKey() string {
+	envKey := strings.TrimSpace(os.Getenv(ApiKeyEnvVar))
+	if envKey != "" {
+		validateAPIKey(envKey, "environment variable "+ApiKeyEnvVar)
+		return envKey
+	}
+
+	keyBytes, err := os.ReadFile(ApiKeyFile)
+	if err != nil {
+		log.Fatalf("Failed to read API key file %s: %v", ApiKeyFile, err)
+	}
+	fileKey := strings.TrimSpace(string(keyBytes))
+	validateAPIKey(fileKey, "file "+ApiKeyFile)
+	return fileKey
+}
+
+func validateAPIKey(key, source string) {
+	if key == "" {
+		log.Fatalf("API key from %s is empty", source)
+	}
+	if len(key) < ApiKeyMinLen {
+		log.Fatalf("API key from %s is too short (min %d characters)", source, ApiKeyMinLen)
+	}
+	if !apiKeyFormat.MatchString(key) {
+		log.Fatalf("API key from %s has invalid format", source)
+	}
 }
 
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
