@@ -5,10 +5,6 @@ package main
 
 import (
 	"bufio"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -34,7 +30,6 @@ const (
 	UserDB              = "/etc/zivpn/users.json"
 	DomainFile          = "/etc/zivpn/domain"
 	ApiKeyFile          = "/etc/zivpn/apikey"
-	PasswordKeyFile     = "/etc/zivpn/password.key"
 	Port                = "/etc/zivpn/api_port"
 	PortFile            = "/etc/zivpn/port"
 	ProtocolDir         = "/etc/zivpn/protocols"
@@ -43,9 +38,7 @@ const (
 	BotNotifyURL        = "http://127.0.0.1:9871/notify"
 	MaxAccounts         = 20
 	ApiKeyEnvVar        = "ZIVPN_API_KEY"
-	PasswordKeyEnvVar   = "ZIVPN_PASSWORD_KEY"
 	ApiKeyMinLen        = 16
-	PasswordKeyByteSize = 32
 	MaxRequestBodyBytes = 2 << 20
 )
 
@@ -85,8 +78,7 @@ type UserRequest struct {
 
 type UserStore struct {
 	Username        string                       `json:"username"`
-	Password        string                       `json:"-"`
-	PasswordEnc     string                       `json:"password_enc,omitempty"`
+	Password        string                       `json:"password"`
 	Expired         string                       `json:"expired"`
 	Status          string                       `json:"status"`
 	Protocols       []string                     `json:"protocols"`
@@ -117,9 +109,6 @@ type Package struct {
 }
 
 var mutex = &sync.Mutex{}
-var passwordKeyOnce sync.Once
-var passwordKey []byte
-var passwordKeyErr error
 
 func main() {
 	port := flag.Int("port", 8080, "Port to run the API server on")
@@ -173,99 +162,6 @@ func validateAPIKey(key, source string) {
 	if !apiKeyFormat.MatchString(key) {
 		log.Fatalf("API key from %s has invalid format", source)
 	}
-}
-
-func getPasswordKey() ([]byte, error) {
-	passwordKeyOnce.Do(func() {
-		key, err := loadPasswordKey()
-		if err != nil {
-			passwordKeyErr = err
-			return
-		}
-		passwordKey = key
-	})
-	if passwordKeyErr != nil {
-		return nil, passwordKeyErr
-	}
-	return passwordKey, nil
-}
-
-func loadPasswordKey() ([]byte, error) {
-	envKey := strings.TrimSpace(os.Getenv(PasswordKeyEnvVar))
-	if envKey != "" {
-		return decodePasswordKey(envKey, "environment variable "+PasswordKeyEnvVar)
-	}
-
-	keyBytes, err := ioutil.ReadFile(PasswordKeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("missing password encryption key (set %s or provide %s)", PasswordKeyEnvVar, PasswordKeyFile)
-	}
-	return decodePasswordKey(strings.TrimSpace(string(keyBytes)), "file "+PasswordKeyFile)
-}
-
-func decodePasswordKey(raw, source string) ([]byte, error) {
-	if raw == "" {
-		return nil, fmt.Errorf("password key from %s is empty", source)
-	}
-	decoded, err := base64.StdEncoding.DecodeString(raw)
-	if err != nil {
-		return nil, fmt.Errorf("password key from %s must be base64: %w", source, err)
-	}
-	if len(decoded) != PasswordKeyByteSize {
-		return nil, fmt.Errorf("password key from %s must be %d bytes after base64 decode", source, PasswordKeyByteSize)
-	}
-	return decoded, nil
-}
-
-func encryptPassword(plain string) (string, error) {
-	key, err := getPasswordKey()
-	if err != nil {
-		return "", err
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", err
-	}
-	ciphertext := gcm.Seal(nil, nonce, []byte(plain), nil)
-	payload := append(nonce, ciphertext...)
-	return base64.StdEncoding.EncodeToString(payload), nil
-}
-
-func decryptPassword(ciphertext string) (string, error) {
-	key, err := getPasswordKey()
-	if err != nil {
-		return "", err
-	}
-	raw, err := base64.StdEncoding.DecodeString(ciphertext)
-	if err != nil {
-		return "", err
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	if len(raw) < gcm.NonceSize() {
-		return "", fmt.Errorf("encrypted password payload too short")
-	}
-	nonce := raw[:gcm.NonceSize()]
-	data := raw[gcm.NonceSize():]
-	plain, err := gcm.Open(nil, nonce, data, nil)
-	if err != nil {
-		return "", err
-	}
-	return string(plain), nil
 }
 
 func maskCredential(value string) string {
@@ -1169,7 +1065,6 @@ func loadUsers() ([]UserStore, error) {
 	var records []struct {
 		Username        string                       `json:"username"`
 		Password        string                       `json:"password"`
-		PasswordEnc     string                       `json:"password_enc"`
 		Expired         string                       `json:"expired"`
 		Status          string                       `json:"status"`
 		Protocols       []string                     `json:"protocols"`
@@ -1193,26 +1088,9 @@ func loadUsers() ([]UserStore, error) {
 	for _, record := range records {
 		password := strings.TrimSpace(record.Password)
 
-		if record.PasswordEnc != "" {
-			decoded, derr := decryptPassword(record.PasswordEnc)
-			if derr != nil {
-				// TOLERANT: jangan bikin API mati gara-gara decrypt gagal.
-				// fallback ke password plain kalau ada.
-				log.Printf("WARN: decrypt failed for user=%s (%v). Fallback to plain password.", maskCredential(record.Username), derr)
-				if password == "" {
-					// Kalau dua-duanya kosong, skip
-					log.Printf("WARN: skipping user=%s because password fields unusable", maskCredential(record.Username))
-					continue
-				}
-			} else {
-				password = decoded
-			}
-		}
-
 		users = append(users, UserStore{
 			Username:        record.Username,
 			Password:        password,
-			PasswordEnc:     record.PasswordEnc,
 			Expired:         record.Expired,
 			Status:          record.Status,
 			Protocols:       record.Protocols,
@@ -1223,29 +1101,8 @@ func loadUsers() ([]UserStore, error) {
 	return users, nil
 }
 
-// ✅ FINAL: ENCRYPT OPTIONAL (kalau key tidak ada → simpan plain, tidak error)
 func saveUsers(users []UserStore) error {
-	records := make([]UserStore, 0, len(users))
-
-	for _, user := range users {
-		record := user
-
-		encrypted, err := encryptPassword(user.Password)
-		if err == nil {
-			record.PasswordEnc = encrypted
-			record.Password = ""
-		} else {
-			// fallback mode: still save, do not break API create user
-			log.Printf("WARN: password encryption skipped for user=%s (%v)", maskCredential(user.Username), err)
-			record.PasswordEnc = ""
-			// Simpan plain password (risk security, tapi sesuai request: jangan wajib encrypt)
-			record.Password = user.Password
-		}
-
-		records = append(records, record)
-	}
-
-	data, err := json.MarshalIndent(records, "", "  ")
+	data, err := json.MarshalIndent(users, "", "  ")
 	if err != nil {
 		return err
 	}
