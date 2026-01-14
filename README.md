@@ -12,9 +12,7 @@
     *   **Free Bot**: Manajemen user (Create, Renew, Delete) dengan fitur **Backup & Restore**.
     *   **Paid Bot**: Integrasi Pakasir (QRIS) dengan **Admin Panel** tersembunyi.
 *   **Robust User Management**:
-    *   **Auto-Revoke**: User expired otomatis disconnect setiap jam 00:00 WIB (via Cron).
     *   **Clean Deletion**: Hapus user bersih total dari config dan database.
-    *   **Bot Notification**: Admin menerima notifikasi saat expire check/cleanup sukses.
 *   **IP Limit & Monitoring Online**: Batasi koneksi per akun dan lihat akun aktif beserta IP/last_seen.
 *   **Dynamic Security**: API Key dan sertifikat SSL digenerate otomatis.
 *   **Fail2ban Protection**: Proteksi brute-force untuk SSH dan ZiVPN UDP.
@@ -28,7 +26,7 @@
 
 *   **v1.1** — **IP Limit & Template Paket**: Dukungan limit IP per akun serta paket akun berbasis template (`packages.json`).
 *   **v1.2** — **Fail2ban**: Proteksi otomatis untuk SSH dan ZiVPN UDP.
-*   **v1.3** — **Notifikasi & Multi-Admin**: Notifikasi bot saat cron sukses dan dukungan multi-admin dengan role.
+*   **v1.3** — **Notifikasi & Multi-Admin**: Dukungan multi-admin dengan role.
 *   **v1.4** — **Monitoring Online**: Endpoint monitoring akun aktif (IP & last_seen).
 
 ---
@@ -68,7 +66,6 @@ Saat script berjalan, Anda akan diminta memasukkan:
 ### Konfigurasi Tambahan Setelah Instalasi
 *   **Torrent Blocker**: Enable/disable sesuai kebutuhan (lihat bagian di bawah) dan sesuaikan rule di `/etc/zivpn/torrent-block.rules`.
 *   **Backup Full**: Jalankan menu **Backup** dari bot (Free/Paid) untuk mendapatkan ZIP backup penuh. Simpan file ZIP sebagai cadangan restore.
-*   **Cron Cleanup**: Pastikan cron berjalan (jadwal default di bawah) dan cek log di `/var/log/zivpn-cron.log`. Untuk uji manual, gunakan endpoint `/api/cron/cleanup`.
 *   **Tuning conntrack (anti-timeout)**: Installer menambahkan pengaturan conntrack di `/etc/sysctl.d/99-zivpn.conf` (dan preset performa bot menulis ke `/etc/sysctl.d/99-zivpn-high-performance.conf` atau `/etc/sysctl.d/99-zivpn-conservative.conf`). Nilai `net.netfilter.nf_conntrack_udp_timeout`/`nf_conntrack_udp_timeout_stream` yang lebih tinggi membantu sesi UDP idle bertahan lebih lama (anti-timeout), tetapi menambah pemakaian memori dan membuat entri koneksi lama lebih lama dibersihkan. Untuk perubahan yang konsisten pada koneksi lama, lakukan reconnect setelah apply sysctl. Untuk skala tinggi, pertimbangkan set `hashsize` melalui modul, misalnya dengan membuat `/etc/modprobe.d/zivpn-conntrack.conf` berisi `options nf_conntrack hashsize=262144` lalu reload modul.
 *   **API Key (ZiVPN API Server)**:
     *   **Prioritas sumber**: (1) env var `ZIVPN_API_KEY`, lalu (2) file `/etc/zivpn/apikey`.
@@ -82,7 +79,7 @@ Saat script berjalan, Anda akan diminta memasukkan:
 
 ### Fail2ban (SSH + ZiVPN UDP)
 Installer akan memasang **fail2ban** dan membuat jail default untuk:
-*   **SSH (sshd)** dengan backend systemd.
+*   **SSH (sshd)** dengan backend journal.
 *   **ZiVPN UDP** (port `5667/udp`) memakai filter custom `zivpn` yang membaca `/var/log/zivpn.log` dan journal `zivpn.service`.
 
 **File konfigurasi:**
@@ -170,17 +167,6 @@ Bot dan API dapat menggunakan template paket dari `/etc/zivpn/packages.json`. Co
 
 ---
 
-## ⏱️ Jadwal Cron
-
-Cron job otomatis dijalankan di server untuk maintenance akun:
-
-*   **Expire Check**: Setiap hari **00:00 WIB** → `/api/cron/expire`
-*   **Cleanup Expired**: Setiap hari **00:10 WIB** → `/api/cron/cleanup`
-
-Log cron tersimpan di `/var/log/zivpn-cron.log`.
-
----
-
 ## 📱 ZiVPN Manager App
 
 Kelola server dan user Anda dengan mudah menggunakan aplikasi Android resmi **ZiVPN Manager**.
@@ -235,18 +221,6 @@ API berjalan di port `8080`. Gunakan **API Key** pada header `X-API-Key`.
 *   **Method**: `GET`
 *   **Desc**: Menampilkan akun aktif beserta IP dan `last_seen` (berdasarkan log server ZiVPN dan/atau conntrack).
 
-### 7. Cron Trigger (Expire Check)
-*   **Endpoint**: `/api/cron/expire`
-*   **Method**: `POST`
-*   **Desc**: Trigger manual pengecekan expired (biasanya jalan otomatis jam 00:00 WIB).
-
-### 8. Cron Trigger (Cleanup Expired)
-*   **Endpoint**: `/api/cron/cleanup`
-*   **Method**: `POST`
-*   **Desc**: Hapus akun expired dari config dan database (biasanya jalan otomatis jam 00:10 WIB).
-
----
-
 ## 🚀 Postman Collection
 Anda dapat mengimpor koleksi API lengkap ke Postman menggunakan file JSON berikut:
 [Download zivpn_postman_collection.json](zivpn_postman_collection.json)
@@ -256,7 +230,6 @@ Anda dapat mengimpor koleksi API lengkap ke Postman menggunakan file JSON beriku
 ## 📶 MTU (Auto/Manual)
 Installer akan menghitung MTU menggunakan `ping -M do` (fallback `tracepath`) ke endpoint publik (default `1.1.1.1`) dan menyimpan hasilnya ke `/etc/zivpn/mtu`.
 
-*   Jika binary core mendukung `--mtu` atau `--mssfix`, unit systemd otomatis menyuplai nilai dari `/etc/zivpn/mtu`.
 *   Jika core belum mendukung, Anda tetap bisa mengatur MTU manual/otomatis melalui konfigurasi di `/etc/zivpn/config.json`:
     *   `"mtu": "auto"` untuk memakai kalkulasi otomatis.
     *   `"mtu": 1200` (contoh) untuk nilai manual.
