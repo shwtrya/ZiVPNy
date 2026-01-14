@@ -190,6 +190,60 @@ mtu_value=$(detect_mtu "$mtu_endpoint")
 echo "$mtu_value" > /etc/zivpn/mtu
 print_done "MTU detected: ${CYAN}${mtu_value}${RESET}"
 
+echo ""
+echo -ne "${BOLD}Conntrack Timeout Configuration${RESET}\n"
+conntrack_udp_timeout=""
+conntrack_udp_timeout_stream=""
+if command -v python3 >/dev/null 2>&1; then
+  conntrack_udp_timeout=$(python3 - <<'PY'
+import json
+try:
+  with open("/etc/zivpn/config.json", "r") as f:
+    data = json.load(f)
+except Exception:
+  data = {}
+value = data.get("conntrack", {}).get("udp_timeout", "")
+print(value if value is not None else "")
+PY
+  )
+  conntrack_udp_timeout_stream=$(python3 - <<'PY'
+import json
+try:
+  with open("/etc/zivpn/config.json", "r") as f:
+    data = json.load(f)
+except Exception:
+  data = {}
+value = data.get("conntrack", {}).get("udp_timeout_stream", "")
+print(value if value is not None else "")
+PY
+  )
+fi
+
+prompt_conntrack_timeout() {
+  local label="$1"
+  local default_value="$2"
+  local result=""
+
+  while true; do
+    if [ -n "$default_value" ]; then
+      read -p "$label [$default_value]: " result
+      result=${result:-$default_value}
+    else
+      read -p "$label: " result
+    fi
+
+    if [[ "$result" =~ ^[0-9]+$ ]] && [ "$result" -gt 0 ]; then
+      echo "$result"
+      return
+    fi
+    echo "Please enter a positive integer."
+  done
+}
+
+conntrack_udp_timeout=$(prompt_conntrack_timeout "UDP timeout (seconds)" "$conntrack_udp_timeout")
+conntrack_udp_timeout_stream=$(prompt_conntrack_timeout "UDP timeout stream (seconds)" "$conntrack_udp_timeout_stream")
+echo ""
+
 run_silent "Generating SSL" "openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 -subj '/C=ID/ST=Jawa Barat/L=Bandung/O=AutoFTbot/OU=IT Department/CN=$domain' -keyout /etc/zivpn/zivpn.key -out /etc/zivpn/zivpn.crt"
 
 mkdir -p /etc/zivpn/protocols
@@ -373,13 +427,13 @@ done
 echo "$API_PORT" > /etc/zivpn/api_port
 print_done "API Port selected: ${CYAN}$API_PORT${RESET}"
 
-cat <<'END' > /etc/sysctl.d/99-zivpn.conf
+cat <<END > /etc/sysctl.d/99-zivpn.conf
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 net.ipv4.ip_forward=1
 net.netfilter.nf_conntrack_max=262144
-net.netfilter.nf_conntrack_udp_timeout=120
-net.netfilter.nf_conntrack_udp_timeout_stream=300
+net.netfilter.nf_conntrack_udp_timeout=${conntrack_udp_timeout}
+net.netfilter.nf_conntrack_udp_timeout_stream=${conntrack_udp_timeout_stream}
 net.core.rmem_max=16777216
 net.core.wmem_max=16777216
 net.core.rmem_default=262144
