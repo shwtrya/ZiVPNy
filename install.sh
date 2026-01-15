@@ -88,6 +88,8 @@ if [ -f /usr/local/bin/zivpn ]; then
   systemctl stop zivpn-bot.service &>/dev/null
 fi
 
+run_silent "Cleaning legacy airplane/modpes automation" "systemctl stop zivpn-automation.service zivpn-automation.timer zivpn-airplane.service zivpn-airplane.timer zivpn-modpes.service zivpn-modpes.timer auto-airplane.service auto-airplane.timer modpes.service modpes.timer &>/dev/null || true; systemctl disable zivpn-automation.service zivpn-automation.timer zivpn-airplane.service zivpn-airplane.timer zivpn-modpes.service zivpn-modpes.timer auto-airplane.service auto-airplane.timer modpes.service modpes.timer &>/dev/null || true; rm -f /etc/systemd/system/zivpn-automation.service /etc/systemd/system/zivpn-automation.timer /etc/systemd/system/zivpn-airplane.service /etc/systemd/system/zivpn-airplane.timer /etc/systemd/system/zivpn-modpes.service /etc/systemd/system/zivpn-modpes.timer /etc/systemd/system/auto-airplane.service /etc/systemd/system/auto-airplane.timer /etc/systemd/system/modpes.service /etc/systemd/system/modpes.timer /etc/cron.d/zivpn-automation /etc/cron.d/auto-airplane /etc/cron.d/modpes /etc/zivpn/automation.conf /usr/local/bin/zivpn-automation /usr/local/bin/auto-airplane /usr/local/bin/modpes; crontab -l 2>/dev/null | grep -Ev 'airplane|modpes|zivpn-automation|auto-airplane' | crontab - 2>/dev/null || true; systemctl daemon-reload &>/dev/null || true"
+
 run_silent "Updating system" "sudo apt-get update"
 run_silent "Setting Timezone" "sudo timedatectl set-timezone Asia/Jakarta"
 
