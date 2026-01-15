@@ -22,12 +22,14 @@ object HysteriaConfig {
         serverPort: Int,
         password: String,
         obfs: String = "",
-        sni: String = ""
+        sni: String = "",
+        keepAliveSeconds: Int? = null
     ): String {
         val config = Hysteria2Config(
             server = "$serverAddress:$serverPort",
             auth = password,
             obfs = if (obfs.isNotEmpty()) ObfsConfig(type = "salamander", salamander = SalamanderPassword(password = obfs)) else null,
+            heartbeat = keepAliveSeconds?.let { "${it}s" },
             tls = TlsConfig(
                 sni = sni.ifEmpty { serverAddress },
                 insecure = true // Allow self-signed certs
@@ -57,12 +59,14 @@ object HysteriaConfig {
         serverPort: Int,
         password: String,
         obfs: String = "",
-        sni: String = ""
+        sni: String = "",
+        keepAliveSeconds: Int? = null
     ): String {
         val config = Hysteria2TunConfig(
             server = "$serverAddress:$serverPort",
             auth = password,
             obfs = if (obfs.isNotEmpty()) ObfsConfig(type = "salamander", salamander = SalamanderPassword(password = obfs)) else null,
+            heartbeat = keepAliveSeconds?.let { "${it}s" },
             tls = TlsConfig(
                 sni = sni.ifEmpty { serverAddress },
                 insecure = true
@@ -91,6 +95,7 @@ data class Hysteria2Config(
     val server: String,
     val auth: String,
     val obfs: ObfsConfig?,
+    @SerializedName("heartbeat") val heartbeat: String? = null,
     val tls: TlsConfig,
     val quic: QuicConfig? = null,
     val bandwidth: BandwidthConfig? = null,
@@ -102,6 +107,7 @@ data class Hysteria2TunConfig(
     val server: String,
     val auth: String,
     val obfs: ObfsConfig?,
+    @SerializedName("heartbeat") val heartbeat: String? = null,
     val tls: TlsConfig,
     val quic: QuicConfig? = null,
     val bandwidth: BandwidthConfig? = null,

@@ -21,8 +21,14 @@
     <string name="mtu_label">MTU</string>
     <string name="mtu_helper">Rentang aman 1000–1500</string>
     <string name="mtu_tip">Jika sering disconnect, coba turunkan MTU ke 1100–1200.</string>
+    <string name="keepalive_label">Keepalive (detik)</string>
+    <string name="keepalive_helper">Rentang 5–120 detik</string>
+    <string name="keepalive_tip">Naikkan interval jika hemat baterai, turunkan jika koneksi sering putus.</string>
     <string name="save">Simpan</string>
     <string name="mtu_invalid_number">MTU harus berupa angka.</string>
     <string name="mtu_invalid_range">MTU harus di antara %1$d–%2$d.</string>
     <string name="mtu_saved">Pengaturan MTU tersimpan.</string>
+    <string name="keepalive_invalid_number">Keepalive harus berupa angka.</string>
+    <string name="keepalive_invalid_range">Keepalive harus di antara %1$d–%2$d detik.</string>
+    <string name="keepalive_saved">Pengaturan keepalive tersimpan.</string>
 </resources>
