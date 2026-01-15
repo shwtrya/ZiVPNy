@@ -77,6 +77,23 @@ Saat script berjalan, Anda akan diminta memasukkan:
 *   **Disable**: Jalankan `/etc/zivpn/torrent-block-remove.sh`
 *   **Custom rule**: Edit `/etc/zivpn/torrent-block.rules`, lalu jalankan ulang apply script.
 
+### Pastikan Auto-Airplane/Modpes Lama Tidak Aktif
+Jika Anda pernah memakai versi lama yang memasang auto-airplane/modpes (systemd/cron), pastikan tidak ada unit/cron lama yang masih aktif:
+*   Cek unit lama: `systemctl list-unit-files | grep -E 'airplane|modpes|zivpn-automation|auto-airplane'`
+*   Cek timer lama: `systemctl list-timers | grep -E 'airplane|modpes|zivpn-automation|auto-airplane'`
+*   Cek cron root: `crontab -l | grep -E 'airplane|modpes|zivpn-automation|auto-airplane'`
+
+Jika masih ada, disable dan hapus manual, misalnya:
+```bash
+systemctl disable --now zivpn-automation.service zivpn-automation.timer auto-airplane.service auto-airplane.timer modpes.service modpes.timer
+rm -f /etc/systemd/system/zivpn-automation.service /etc/systemd/system/zivpn-automation.timer \
+  /etc/systemd/system/auto-airplane.service /etc/systemd/system/auto-airplane.timer \
+  /etc/systemd/system/modpes.service /etc/systemd/system/modpes.timer \
+  /etc/cron.d/zivpn-automation /etc/cron.d/auto-airplane /etc/cron.d/modpes \
+  /etc/zivpn/automation.conf /usr/local/bin/zivpn-automation /usr/local/bin/auto-airplane /usr/local/bin/modpes
+systemctl daemon-reload
+```
+
 ### Fail2ban (SSH + ZiVPN UDP)
 Installer akan memasang **fail2ban** dan membuat jail default untuk:
 *   **SSH (sshd)** dengan backend journal.

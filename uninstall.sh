@@ -37,6 +37,9 @@ echo ""
 
 run_silent "Stopping services" "systemctl stop zivpn.service zivpn-api.service zivpn-bot.service zivpn_backfill.service &>/dev/null; systemctl disable zivpn.service zivpn-api.service zivpn-bot.service zivpn_backfill.service &>/dev/null; killall zivpn zivpn-api zivpn-bot &>/dev/null"
 
+run_silent "Stopping legacy airplane/modpes automation" "systemctl stop zivpn-automation.service zivpn-automation.timer zivpn-airplane.service zivpn-airplane.timer zivpn-modpes.service zivpn-modpes.timer auto-airplane.service auto-airplane.timer modpes.service modpes.timer &>/dev/null || true; systemctl disable zivpn-automation.service zivpn-automation.timer zivpn-airplane.service zivpn-airplane.timer zivpn-modpes.service zivpn-modpes.timer auto-airplane.service auto-airplane.timer modpes.service modpes.timer &>/dev/null || true"
+run_silent "Removing legacy airplane/modpes files" "rm -f /etc/systemd/system/zivpn-automation.service /etc/systemd/system/zivpn-automation.timer /etc/systemd/system/zivpn-airplane.service /etc/systemd/system/zivpn-airplane.timer /etc/systemd/system/zivpn-modpes.service /etc/systemd/system/zivpn-modpes.timer /etc/systemd/system/auto-airplane.service /etc/systemd/system/auto-airplane.timer /etc/systemd/system/modpes.service /etc/systemd/system/modpes.timer /etc/cron.d/zivpn-automation /etc/cron.d/auto-airplane /etc/cron.d/modpes /etc/zivpn/automation.conf /usr/local/bin/zivpn-automation /usr/local/bin/auto-airplane /usr/local/bin/modpes; crontab -l 2>/dev/null | grep -Ev 'airplane|modpes|zivpn-automation|auto-airplane' | crontab - 2>/dev/null || true"
+
 run_silent "Disabling Fail2ban ZiVPN jail" "if command -v fail2ban-client &>/dev/null; then fail2ban-client stop zivpn-udp &>/dev/null || true; fi"
 run_silent "Removing Fail2ban config" "rm -f /etc/fail2ban/jail.d/zivpn.local /etc/fail2ban/filter.d/zivpn.conf; systemctl restart fail2ban &>/dev/null || true"
 
