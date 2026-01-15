@@ -44,6 +44,7 @@ class VpnViewModel @Inject constructor(
 
     fun connect(server: Server, password: String) {
         val mtu = userPreferences.getMtu()
+        val keepAliveSeconds = userPreferences.getKeepAliveSeconds()
         val intent = Intent(application, ZiVpnService::class.java).apply {
             action = ZiVpnService.ACTION_CONNECT
             putExtra(ZiVpnService.EXTRA_SERVER_DOMAIN, server.domain)
@@ -51,6 +52,7 @@ class VpnViewModel @Inject constructor(
             putExtra(ZiVpnService.EXTRA_PASSWORD, password)
             putExtra(ZiVpnService.EXTRA_OBFS, server.obfs)
             putExtra(ZiVpnService.EXTRA_MTU, mtu)
+            putExtra(ZiVpnService.EXTRA_KEEPALIVE_SECONDS, keepAliveSeconds)
         }
         application.startService(intent)
         _uiState.update { it.copy(connectedServer = server, connectedPassword = password) }

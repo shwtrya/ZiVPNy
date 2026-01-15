@@ -14,6 +14,7 @@ import android.system.OsConstants
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.zivpn.app.R
+import com.zivpn.app.data.model.KeepAliveConfig
 import com.zivpn.app.data.model.VpnState
 import com.zivpn.app.data.model.MtuConfig
 import kotlinx.coroutines.*
@@ -44,10 +45,12 @@ class ZiVpnService : VpnService() {
         const val EXTRA_PASSWORD = "password"
         const val EXTRA_OBFS = "obfs"
         const val EXTRA_MTU = "extra_mtu"
+        const val EXTRA_KEEPALIVE_SECONDS = "extra_keepalive_seconds"
 
         private const val CHANNEL_ID = "zivpn_channel"
         private const val NOTIFICATION_ID = 1
         private const val SOCKS_PORT = 10808
+        private val RECONNECT_BACKOFF_MS = listOf(3000L, 5000L, 10000L)
 
         private val _vpnState = MutableStateFlow(VpnState.DISCONNECTED)
         val vpnState: StateFlow<VpnState> = _vpnState
@@ -69,6 +72,7 @@ class ZiVpnService : VpnService() {
     private var serverIps: List<String> = emptyList()
     private var hysteriaProtectFd: Int? = null
     private var tunMtu: Int = MtuConfig.DEFAULT_MTU
+    private var keepAliveSeconds: Int? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -79,6 +83,8 @@ class ZiVpnService : VpnService() {
                 obfsKey = intent.getStringExtra(EXTRA_OBFS) ?: "zivpn"
                 tunMtu = intent.getIntExtra(EXTRA_MTU, MtuConfig.DEFAULT_MTU)
                     .coerceIn(MtuConfig.MIN_MTU, MtuConfig.MAX_MTU)
+                keepAliveSeconds = intent.getIntExtra(EXTRA_KEEPALIVE_SECONDS, KeepAliveConfig.DEFAULT_SECONDS)
+                    .coerceIn(KeepAliveConfig.MIN_SECONDS, KeepAliveConfig.MAX_SECONDS)
                 startVpn()
             }
             ACTION_DISCONNECT -> stopVpn()
@@ -115,7 +121,8 @@ class ZiVpnService : VpnService() {
                     serverAddress = serverDomain,
                     serverPort = serverPort,
                     password = password,
-                    obfs = obfsKey
+                    obfs = obfsKey,
+                    keepAliveSeconds = keepAliveSeconds
                 )
                 configFile.writeText(config)
                 Log.d(TAG, "Hysteria config: $config")
@@ -364,23 +371,90 @@ class ZiVpnService : VpnService() {
             if (tun2socksProcess?.isAlive != true) {
                 val exitCode = runCatching { tun2socksProcess?.exitValue() }.getOrNull()
                 Log.e(TAG, "tun2socks process died (exit code=${exitCode ?: "unknown"})")
-                withContext(Dispatchers.Main) {
-                    _vpnState.value = VpnState.ERROR
-                    _connectionInfo.value = "Tunnel stopped"
+                val reconnected = attemptReconnect("tun2socks stopped")
+                if (!reconnected) {
+                    withContext(Dispatchers.Main) {
+                        _vpnState.value = VpnState.ERROR
+                        _connectionInfo.value = "Tunnel stopped"
+                    }
+                    break
                 }
-                break
+                continue
             }
 
             // Check if hysteria is still running
             if (hysteriaProcess?.isAlive != true) {
                 Log.w(TAG, "Hysteria process died")
-                withContext(Dispatchers.Main) {
-                    _vpnState.value = VpnState.ERROR
-                    _connectionInfo.value = "Connection lost"
+                val reconnected = attemptReconnect("hysteria stopped")
+                if (!reconnected) {
+                    withContext(Dispatchers.Main) {
+                        _vpnState.value = VpnState.ERROR
+                        _connectionInfo.value = "Connection lost"
+                    }
+                    break
                 }
-                break
             }
         }
+    }
+
+    private suspend fun attemptReconnect(reason: String): Boolean {
+        if (_vpnState.value != VpnState.CONNECTED) {
+            return false
+        }
+
+        _vpnState.value = VpnState.CONNECTING
+        _connectionInfo.value = "Reconnecting..."
+        updateNotification("Reconnecting...")
+
+        stopProcesses()
+
+        val hysteriaPath = extractBinary("hysteria") ?: return false
+        val tun2socksPath = extractBinary("tun2socks") ?: return false
+
+        val configFile = File(filesDir, "hysteria-config.json")
+        val config = HysteriaConfig.generate(
+            serverAddress = serverDomain,
+            serverPort = serverPort,
+            password = password,
+            obfs = obfsKey,
+            keepAliveSeconds = keepAliveSeconds
+        )
+        configFile.writeText(config)
+
+        for (delayMs in RECONNECT_BACKOFF_MS) {
+            if (_vpnState.value == VpnState.DISCONNECTING || _vpnState.value == VpnState.DISCONNECTED) {
+                return false
+            }
+
+            Log.w(TAG, "Reconnect attempt after ${delayMs}ms due to $reason")
+            delay(delayMs)
+
+            if (!startHysteria(hysteriaPath, configFile.absolutePath)) {
+                continue
+            }
+
+            if (!waitForSocksProxy()) {
+                stopProcesses()
+                continue
+            }
+
+            val tunFd = vpnInterface?.fd ?: run {
+                stopProcesses()
+                return false
+            }
+
+            if (!startTun2Socks(tun2socksPath, tunFd)) {
+                stopProcesses()
+                continue
+            }
+
+            _vpnState.value = VpnState.CONNECTED
+            _connectionInfo.value = "Connected to $serverDomain"
+            updateNotification("Connected to $serverDomain")
+            return true
+        }
+
+        return false
     }
 
     private suspend fun stopProcesses(timeoutMs: Long = 3000) {
