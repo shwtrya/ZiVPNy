@@ -820,15 +820,15 @@ func checkPaymentStatus(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
 
 func showSupport(bot *tgbotapi.BotAPI, chatID int64) {
 	msg := tgbotapi.NewMessage(chatID, `╔════════════════════════╗
-║    📞 CUSTOMER SUPPORT  ║
+║          📞 CUSTOMER SUPPORT             ║
 ╚════════════════════════╝
 💬 Butuh bantuan?
 Hubungi kami melalui:
-📱 Telegram: @zivpn_support
-📧 Email: support@zivpn.com
-🌐 Website: https://zivpn.com
+📱 Telegram: @shwtrya
+📧 Email: shawavatritya@gmail.com
+🌐 Website: https://wapaa.netlify.app
 ⏰ Jam Operasional:
-Senin - Jumat: 09:00 - 17:00 WIB
+Senin - Jumat: 09:00 - 20:00 WIB
 Sabtu: 09:00 - 15:00 WIB
 Minggu: Libur
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -843,13 +843,11 @@ Kami siap membantu Anda! 😊`)
 
 func showGuide(bot *tgbotapi.BotAPI, chatID int64) {
 	msg := tgbotapi.NewMessage(chatID, `╔════════════════════════╗
-║   📖 PANDUAN SETUP VPN  ║
+║          📖 PANDUAN SETUP VPN            ║
 ╚════════════════════════╝
 🚀 LANGKAH-LANGKAH:
 1️⃣ Download Aplikasi
-• Android: HTTP Injector
-• iOS: Shadowrocket
-• PC: OpenVPN
+• Android: ZIVPN
 2️⃣ Import Config
 • Buka aplikasi
 • Import file config
@@ -857,14 +855,14 @@ func showGuide(bot *tgbotapi.BotAPI, chatID int64) {
 3️⃣ Masukkan Akun
 • Username: [dari bot]
 • Password: [dari bot]
-• Server: [domain]
+• Server/ip: [domain]
 4️⃣ Connect
 • Klik tombol connect
 • Tunggu hingga tersambung
 • Selamat browsing! 🎉
 ━━━━━━━━━━━━━━━━━━━━━━━━
 📹 Video Tutorial:
-youtube.com/zivpn
+youtube.com/results?search_query=zivpn
 ❓ Masih bingung?
 Hubungi support kami!`)
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
@@ -912,7 +910,7 @@ func processPayment(bot *tgbotapi.BotAPI, chatID int64, userID int64, days int, 
 	qrUrl := fmt.Sprintf("https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=%s", payment.PaymentNumber)
 
 	msgText := fmt.Sprintf(`╔════════════════════════╗
-║  💳 INVOICE PEMBAYARAN  ║
+║          💳 INVOICE PEMBAYARAN          ║
 ╚════════════════════════╝
 📝 DETAIL PESANAN
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1126,8 +1124,8 @@ func listUsers(bot *tgbotapi.BotAPI, chatID int64) {
 			return
 		}
 
-		msg := `╔════════════════════════╗
-║   📂 DAFTAR AKUN VPN   ║
+		msg := ╔════════════════════════╗
+║             📂 DAFTAR AKUN VPN              ║
 ╚════════════════════════╝
 `
 		for i, u := range users {
@@ -1242,8 +1240,8 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 	}
 
 	msgText := fmt.Sprintf(`╔════════════════════════╗
-║   🚀 ZiVPN UDP STORE   ║
-║      Premium VPN       ║
+║             🚀 ZiVPN UDP STORE                ║
+║                     Premium VPN                      ║
 ╚════════════════════════╝
 📊 INFORMASI SERVER
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1310,7 +1308,7 @@ func sendAccountInfo(bot *tgbotapi.BotAPI, chatID int64, data map[string]interfa
 	expiredDate := formatDate(fmt.Sprintf("%v", data["expired"]))
 
 	msg := fmt.Sprintf(`╔════════════════════════╗
-║  ✅ AKUN PREMIUM AKTIF  ║
+║          ✅ AKUN PREMIUM AKTIF           ║
 ╚════════════════════════╝
 🔐 DETAIL AKUN
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1799,7 +1797,7 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 		}
 
 		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(`╔════════════════════════╗
-║  🖥️ INFO SISTEM ZiVPN  ║
+║            🖥️ INFO SISTEM ZiVPN              ║
 ╚════════════════════════╝
 🌐 JARINGAN
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1989,7 +1987,7 @@ func listOnlineUsers(bot *tgbotapi.BotAPI, chatID int64) {
 		}
 
 		msg := fmt.Sprintf(`╔════════════════════════╗
-║   📡 AKUN ONLINE (%d)   ║
+║              📡 AKUN ONLINE (%d)              ║
 ╚════════════════════════╝
 `, len(entries))
 		for i, entry := range entries {
@@ -2016,8 +2014,8 @@ func listOnlineUsers(bot *tgbotapi.BotAPI, chatID int64) {
 }
 
 func showBackupRestoreMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig, userID int64) {
-	msg := tgbotapi.NewMessage(chatID, `╔════════════════════════╗
-║    🛠️ ADMIN PANEL      ║
+	msg := tgbotapi.NewMessage(chatID, ╔════════════════════════╗
+║                  🛠️ ADMIN PANEL                   ║
 ╚════════════════════════╝
 Pilih menu administrasi:`)
 	rows := [][]tgbotapi.InlineKeyboardButton{
@@ -2069,8 +2067,8 @@ Pilih menu administrasi:`)
 }
 
 func showAdminMenu(bot *tgbotapi.BotAPI, chatID int64) {
-	msg := tgbotapi.NewMessage(chatID, `╔════════════════════════╗
-║   👥 KELOLA ADMIN      ║
+	msg := tgbotapi.NewMessage(chatID, ╔════════════════════════╗
+║                 👥 KELOLA ADMIN                  ║
 ╚════════════════════════╝
 Pilih aksi:`)
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
@@ -2118,7 +2116,7 @@ func listAdmins(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 
 	var builder strings.Builder
 	builder.WriteString(`╔════════════════════════╗
-║   📋 DAFTAR ADMIN      ║
+║                 📋 DAFTAR ADMIN                 ║
 ╚════════════════════════╝
 `)
 	for i, id := range ids {
@@ -2219,7 +2217,7 @@ func formatBytes(bytes int64) string {
 func startRestore(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
 	userStates[userID] = "waiting_restore_file"
 	msg := tgbotapi.NewMessage(chatID, `╔════════════════════════╗
-║   📥 RESTORE DATA      ║
+║                 📥 RESTORE DATA                  ║
 ╚════════════════════════╝
 ⬆️ Silakan kirim file ZIP backup Anda sekarang.
 ⚠️ PERINGATAN:
