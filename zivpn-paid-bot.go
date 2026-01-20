@@ -2067,7 +2067,7 @@ Pilih menu administrasi:`)
 }
 
 func showAdminMenu(bot *tgbotapi.BotAPI, chatID int64) {
-	msg := tgbotapi.NewMessage(chatID, ╔════════════════════════╗
+	msg := tgbotapi.NewMessage(chatID, `╔════════════════════════╗
 ║                 👥 KELOLA ADMIN                  ║
 ╚════════════════════════╝
 Pilih aksi:`)
@@ -2115,7 +2115,7 @@ func listAdmins(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 
 	var builder strings.Builder
-	builder.WriteString(`╔════════════════════════╗
+	builder.WriteString( `╔════════════════════════╗
 ║                 📋 DAFTAR ADMIN                 ║
 ╚════════════════════════╝
 `)
