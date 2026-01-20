@@ -1124,7 +1124,7 @@ func listUsers(bot *tgbotapi.BotAPI, chatID int64) {
 			return
 		}
 
-		msg := ╔════════════════════════╗
+		msg := `╔════════════════════════╗
 ║             📂 DAFTAR AKUN VPN              ║
 ╚════════════════════════╝
 `
