@@ -2014,7 +2014,7 @@ func listOnlineUsers(bot *tgbotapi.BotAPI, chatID int64) {
 }
 
 func showBackupRestoreMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig, userID int64) {
-	msg := tgbotapi.NewMessage(chatID, ╔════════════════════════╗
+	msg := tgbotapi.NewMessage(chatID, `╔════════════════════════╗
 ║                  🛠️ ADMIN PANEL                   ║
 ╚════════════════════════╝
 Pilih menu administrasi:`)
